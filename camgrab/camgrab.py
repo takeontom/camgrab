@@ -2,8 +2,9 @@ from datetime import datetime
 from time import sleep
 from os import makedirs
 from os.path import dirname
-import urllib
+import urllib.request
 from PIL import Image
+from io import BytesIO
 
 
 class Grabber(object):
@@ -16,19 +17,25 @@ class Grabber(object):
 
         self.timeout = 30
         self.save_filename = '{Y}-{m}{d}/{H}/{y}{m}{d}-{H}{M}{S}-{f}.jpg'
+        self.save = True
+
+        # Will bail after running this many ticks
+        self._test_max_ticks = None
 
     def begin(self):
-        while True:
+        counter = 0
+        while True and (self._test_max_ticks is None or counter < self._test_max_ticks):
             self.tick()
             sleep(self.every)
+            if self._test_max_ticks:
+                counter += 1
 
     def tick(self):
         try:
             im = self.get_image_from_url(self.url)
             self.handle_received_image(im)
-
         except Exception as e:
-            print(e)
+            raise e
 
     def get_image_from_url(self, url):
         """Attempt to get an image from the supplied URL.
@@ -36,10 +43,20 @@ class Grabber(object):
         Returns a Pillow Image instance.
         """
         request = urllib.request.urlopen(self.url, timeout=self.timeout)
-        im = Image.open(request.read())
+        fp = BytesIO(request.read())
+        im = Image.open(fp)
         return im
 
     def handle_received_image(self, im):
+        saved = False
+        if self.should_save_image():
+            saved = self.do_save_image(im)
+
+    def should_save_image(self):
+        """Check whether the Grabber is configured to save images."""
+        return bool(self.save and self.save_filename and self.save_to)
+
+    def do_save_image(self, im):
         full_save_path = self.get_full_save_path()
         self.make_save_path_dirs(full_save_path)
         im.save(full_save_path)
@@ -57,7 +74,7 @@ class Grabber(object):
         Expects the path to include the filename.
         """
         dirs = dirname(save_path)
-        makedirs(dirs, exists_ok=True)
+        makedirs(dirs, exist_ok=True)
 
     def format_path(self, path):
         now = datetime.now()
