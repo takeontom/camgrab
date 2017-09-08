@@ -52,6 +52,12 @@ class Grabber(object):
         if self.should_save_image():
             saved = self.do_save_image(im)
 
+        if self.send_to_callable:
+            meta = {
+                'saved': saved,
+            }
+            self.send_to_callable(im, **meta)
+
     def should_save_image(self):
         """Check whether the Grabber is configured to save images."""
         return bool(self.save and self.save_filename and self.save_to)

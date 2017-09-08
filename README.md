@@ -80,7 +80,7 @@ Example:
 ```
 def print_dimensions(im, **meta):
   width, height = im.size
-  print('Image is {width} pixels wide and {height} pixels high!'.format(width, height))
+  print('{width} pixels wide, {height} pixels high!'.format(width=width, height=height))
 
 grabber = Grabber('http://78.100.133.169:8888/out.jpg', send_to_callable=print_dimensions)
 grabber.begin()
