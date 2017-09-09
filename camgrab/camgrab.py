@@ -45,8 +45,8 @@ class Grabber(object):
 
         Returns a Pillow Image instance.
         """
-        request = urllib.request.urlopen(self.url, timeout=self.timeout)
-        fp = BytesIO(request.read())
+        response = urllib.request.urlopen(url, timeout=self.timeout)
+        fp = BytesIO(response.read())
         im = Image.open(fp)
         return im
 

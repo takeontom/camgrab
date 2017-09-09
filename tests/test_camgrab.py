@@ -1,3 +1,5 @@
+import os
+import httpretty
 import pytest
 from camgrab.camgrab import Grabber
 from datetime import datetime
@@ -60,8 +62,24 @@ class TestGrabber(object):
         grabber.get_image_from_url.assert_called_once_with(url)
         grabber.handle_received_image.assert_called_once_with(im)
 
+    @httpretty.activate
     def test_get_image_from_url(self, mocker):
-        pass
+        dummy_url = 'http://a-url.com/'
+        dummy_timeout = 123
+        dummy_image_path = os.path.join(
+            os.path.dirname(__file__), 'assets', 'kitty.jpg'
+        )
+        dummy_body = open(dummy_image_path, 'rb').read()
+
+        httpretty.register_uri(
+            httpretty.GET, dummy_url,
+            body=dummy_body, content_type='image/jpeg'
+        )
+
+        grabber = Grabber('http://example.com')
+        grabber.timeout = dummy_timeout
+
+        grabber.get_image_from_url(dummy_url)
 
     def test_handle_received_image(self, mocker):
         grabber = Grabber('http://example.com')
