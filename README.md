@@ -92,6 +92,6 @@ The supplied `meta` data is:
 * `save_full_path`: the final path which the image might be saved to by the Grabber.
 * `is_saved`: whether the Grabber has actually saved the image to the `save_full_path`.
 * `url`: the source URL for the image.
-* `timestamp`: a Python datetime giving the date and time the image was grabbed.
+* `now`: a Python datetime giving the date and time the image was grabbed.
 
 Passing the grabbed images to a callable provides an easy way to hook in extra functionality. For example, it allows you to easily use motion detectors, image manipulators and analysers.

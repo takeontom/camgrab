@@ -60,8 +60,13 @@ class Grabber(object):
             self.do_send_to_callable(im, **meta)
 
     def generate_meta(self, saved):
+        now = datetime.now()
         meta = {
-            'saved': saved,
+            'is_saved': saved,
+            'now': now,
+            'save_dir': self.save_to,
+            'save_full_path': self.get_full_save_path(),
+            'url': self.url,
         }
         return meta
 

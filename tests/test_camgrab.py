@@ -184,12 +184,28 @@ class TestGrabber(object):
         grabber.make_save_path_dirs.assert_called_once_with(dummy_save_path)
         im.save.assert_called_once_with(dummy_save_path)
 
-    def test_generate_meta(self):
+    def test_generate_meta(self, mocker):
+        dummy_url = 'http://some-url.com'
+        dummy_save_dir = '/some/save/dir'
+        dummy_save_full_path = '/some/save/dir/2017-05-13/20170513-121314.jpg'
+        dummy_now = datetime(2017, 5, 13, 12, 13, 14)
+
+        mocked_datetime = mocker.patch(
+            'camgrab.camgrab.datetime', autospec=True
+        )
+        mocked_datetime.now = mocker.Mock(return_value=dummy_now)
+
         expected = {
-            'saved': True,
+            'save_dir': dummy_save_dir,
+            'save_full_path': dummy_save_full_path,
+            'is_saved': True,
+            'url': dummy_url,
+            'now': dummy_now,
         }
 
-        grabber = Grabber('http://example.com')
+        grabber = Grabber(dummy_url)
+        grabber.save_to = dummy_save_dir
+        grabber.save_filename = '{Y}-{m}-{d}/{Y}{m}{d}-{H}{M}{S}.jpg'
         assert grabber.generate_meta(saved=True) == expected
 
     def test_do_send_to_callable(self, mocker):
