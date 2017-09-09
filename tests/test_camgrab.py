@@ -1,3 +1,4 @@
+import pytest
 from camgrab.camgrab import Grabber
 from datetime import datetime
 
@@ -66,25 +67,52 @@ class TestGrabber(object):
         grabber = Grabber('http://example.com')
         im = Image()
 
-        # Don't save
-        grabber.should_save_image = mocker.Mock(
-            grabber.should_save_image, autospec=True, return_value=False
-        )
         grabber.do_save_image = mocker.Mock(
             grabber.do_save_image, autospec=True, return_value=True
         )
+        grabber.do_send_to_callable = mocker.Mock(
+            grabber.do_send_to_callable, autospec=True, return_value=True
+        )
 
+        dummy_meta = {
+            'saved': True,
+            'other_meta': 'some value',
+        }
+        grabber.generate_meta = mocker.Mock(
+            grabber.generate_meta, autospec=True, return_value=dummy_meta
+        )
+
+        # Shouldn't save or send to callable
+        grabber.should_save_image = mocker.Mock(
+            grabber.should_save_image, autospec=True, return_value=False
+        )
+        grabber.send_to_callable = None
         grabber.handle_received_image(im)
         grabber.should_save_image.assert_called_once_with()
         grabber.do_save_image.assert_not_called()
+        grabber.do_send_to_callable.assert_not_called()
 
-        # Do save
+        # Should save, but not send to callable
         grabber.should_save_image = mocker.Mock(
             grabber.should_save_image, autospec=True, return_value=True
         )
         grabber.handle_received_image(im)
         grabber.should_save_image.assert_called_once_with()
         grabber.do_save_image.assert_called_once_with(im)
+        grabber.do_send_to_callable.assert_not_called()
+
+        # Don't save, but do send to callable
+        grabber.should_save_image = mocker.Mock(
+            grabber.should_save_image, autospec=True, return_value=False
+        )
+        grabber.do_save_image = mocker.Mock(
+            grabber.do_save_image, autospec=True, return_value=True
+        )
+        grabber.send_to_callable = lambda x: x
+        grabber.handle_received_image(im)
+        grabber.should_save_image.assert_called_once_with()
+        grabber.do_save_image.assert_not_called()
+        grabber.do_send_to_callable.assert_called_with(im, **dummy_meta)
 
     def test_should_save_image(self):
         good_grabber = Grabber('http://example.com')
@@ -137,6 +165,30 @@ class TestGrabber(object):
         grabber.get_full_save_path.assert_called_once_with()
         grabber.make_save_path_dirs.assert_called_once_with(dummy_save_path)
         im.save.assert_called_once_with(dummy_save_path)
+
+    def test_generate_meta(self):
+        expected = {
+            'saved': True,
+        }
+
+        grabber = Grabber('http://example.com')
+        assert grabber.generate_meta(saved=True) == expected
+
+    def test_do_send_to_callable(self, mocker):
+        im = Image()
+        grabber = Grabber('http://example.com')
+        grabber.send_to_callable = None
+
+        with pytest.raises(TypeError):
+            grabber.do_send_to_callable(im, saved=True)
+
+        grabber.send_to_callable = mocker.Mock()
+
+        grabber.do_send_to_callable(im, saved=True)
+
+        grabber.send_to_callable.assert_called_once_with(
+            im, saved=True
+        )
 
     def test_create_save_path_dirs(self, mocker):
         mocked_makedirs = mocker.patch('camgrab.camgrab.makedirs')

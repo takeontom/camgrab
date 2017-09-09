@@ -23,19 +23,22 @@ class Grabber(object):
         self._test_max_ticks = None
 
     def begin(self):
+
+        def do_next_tick(counter):
+            max_ticks = self._test_max_ticks
+            return max_ticks is None or counter < max_ticks
+
         counter = 0
-        while True and (self._test_max_ticks is None or counter < self._test_max_ticks):
+
+        while do_next_tick(counter):
             self.tick()
             sleep(self.every)
             if self._test_max_ticks:
                 counter += 1
 
     def tick(self):
-        try:
-            im = self.get_image_from_url(self.url)
-            self.handle_received_image(im)
-        except Exception as e:
-            raise e
+        im = self.get_image_from_url(self.url)
+        self.handle_received_image(im)
 
     def get_image_from_url(self, url):
         """Attempt to get an image from the supplied URL.
@@ -53,10 +56,14 @@ class Grabber(object):
             saved = self.do_save_image(im)
 
         if self.send_to_callable:
-            meta = {
-                'saved': saved,
-            }
-            self.send_to_callable(im, **meta)
+            meta = self.generate_meta(saved)
+            self.do_send_to_callable(im, **meta)
+
+    def generate_meta(self, saved):
+        meta = {
+            'saved': saved,
+        }
+        return meta
 
     def should_save_image(self):
         """Check whether the Grabber is configured to save images."""
@@ -66,6 +73,9 @@ class Grabber(object):
         full_save_path = self.get_full_save_path()
         self.make_save_path_dirs(full_save_path)
         im.save(full_save_path)
+
+    def do_send_to_callable(self, im, **meta):
+        self.send_to_callable(im, **meta)
 
     def get_full_save_path(self):
         save_full_path_raw = '{save_to}/{save_filename}'.format(
