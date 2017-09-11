@@ -18,13 +18,13 @@ class Grabber(object):
         url: The publically accessible URL for the webcam image, is likely
             going to be something like: `'http://78.100.133.169:8888/out.jpg'`.
 
-            It is important the URL is to the actual image, not HTML page
-            displaying or linking to the image.
+            If using the default downloader, it is important the URL is to the
+            actual image, not HTML page displaying or linking to the image.
 
             Only webcams which provide images in JPG format are currently
-            supported. It will not work if your webcam only provides a video
-            stream, or displays snapshots in `.flv` format or something else
-            other than an actual image file.
+            supported by the default downloader. If you need more advanced
+            functionality, then perhaps write a downloader and pass it to the
+            grabber using the ``download_callable`` attribute.
 
         every: The number of seconds to wait between each attempt at grabbing
             an image. Floats are fine for the number of seconds, so `0.2` will
@@ -42,14 +42,6 @@ class Grabber(object):
             Supports various tokens for making dynamic directories as needed,
             see below for more information.
 
-        send_to_callable: Optionally set to a callable, and the Grabber will
-            pass each downloaded image (as a Pillow Image) and some meta
-            information to the callable.
-
-            The callable should have the following signature::
-
-                def some_callable(im, **meta):
-
         timeout: The number of seconds to wait before timing out a connection
             to a webcam.
 
@@ -66,7 +58,7 @@ class Grabber(object):
             When set to ``False``, the _desired_ save location for an image
             is still passed to the callable in the meta information.
 
-        downloader: A callable to use for the image downloading. By default
+        download_callable: A callable to use for the image downloading. By default
             will use the ``get_image_from_url`` downloader, which handles
             getting images from a simple URL.
 
@@ -74,6 +66,14 @@ class Grabber(object):
             signature::
 
                 def some_callable(url)
+
+        send_to_callable: Optionally set to a callable, and the Grabber will
+            pass each downloaded image (as a Pillow Image) and some meta
+            information to the callable.
+
+            The callable should have the following signature::
+
+                def some_callable(im, **meta):
     """
 
     def __init__(
