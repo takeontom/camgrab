@@ -65,17 +65,31 @@ class Grabber(object):
 
             When set to ``False``, the _desired_ save location for an image
             is still passed to the callable in the meta information.
+
+        downloader: A callable to use for the image downloading. By default
+            will use the ``get_image_from_url`` downloader, which handles
+            getting images from a simple URL.
+
+            If a different callable is used, it must use the following
+            signature::
+
+                def some_callable(url)
     """
 
-    def __init__(self, url, every=2, save_to='grabbed_images', send_to_callable=None):
+    def __init__(
+        self, url, every=2, save_to='grabbed_images', download_callable=None,
+        send_to_callable=None
+    ):
         self.url = url
         self.every = every
         self.save_to = save_to
-        self.send_to_callable = send_to_callable
 
         self.timeout = 30
-        self.save_filename = '{Y}-{m}{d}/{H}/{y}{m}{d}-{H}{M}{S}-{f}.jpg'
+        self.save_filename = '{Y}{m}{d}/{H}/{Y}{m}{d}-{H}{M}{S}-{f}.jpg'
         self.save = True
+
+        self.send_to_callable = send_to_callable
+        self.download_callable = download_callable
 
         # Will bail after running this many ticks
         self._test_max_ticks = None
@@ -111,8 +125,29 @@ class Grabber(object):
             1) Download an image
             2) Process the downloaded image
         """
-        im = self.get_image_from_url(self.url)
+        im = self.download_image()
         self.handle_received_image(im)
+
+    def download_image(self):
+        """Attempt to download an image from the grabber's URL.
+
+        By default, this will attempt to use the built in
+        ``get_image_from_url(url)`` method, however a different callable
+        can be chosen by setting the grabber's ``downloader`` attribute.
+
+        The callable used as the ``downloader`` must have the following
+        signtature::
+
+            def some_downloader(url):
+
+        Returns:
+            PIL.Image.Image: The downloaded image.
+        """
+        if self.download_callable:
+            im = self.download_callable(self.url)
+        else:
+            im = self.get_image_from_url(self.url)
+        return im
 
     def get_image_from_url(self, url):
         """Attempt to get an image from the supplied URL.

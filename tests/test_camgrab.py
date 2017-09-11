@@ -17,12 +17,14 @@ class TestGrabber(object):
         assert grabber.every == 2
         assert grabber.save_to == 'grabbed_images'
         assert grabber.send_to_callable is None
+        assert grabber.download_callable is None
 
         kwargs = {
             'url': url,
             'every': 0.5,
             'save_to': 'somewhere_else',
             'send_to_callable': lambda x: x,
+            'download_callable': lambda x: x,
         }
 
         grabber = Grabber(**kwargs)
@@ -45,13 +47,12 @@ class TestGrabber(object):
         mocked_sleep.assert_called_with(13)
 
     def test_tick(self, mocker):
-        url = 'http://example.com'
         im = Image()
 
-        grabber = Grabber(url)
+        grabber = Grabber('http://example.com')
 
-        grabber.get_image_from_url = mocker.Mock(
-            grabber.get_image_from_url, autospec=True, return_value=im
+        grabber.download_image = mocker.Mock(
+            grabber.download_image, autospec=True, return_value=im
         )
         grabber.handle_received_image = mocker.Mock(
             grabber.handle_received_image, autospec=True
@@ -59,11 +60,43 @@ class TestGrabber(object):
 
         grabber.tick()
 
-        grabber.get_image_from_url.assert_called_once_with(url)
+        grabber.download_image.assert_called_once_with()
         grabber.handle_received_image.assert_called_once_with(im)
 
+    def test_download_image(self, mocker):
+        im = Image()
+        url = 'http://example.com'
+        grabber = Grabber(url)
+
+        grabber.get_image_from_url = mocker.Mock(
+            grabber.get_image_from_url, autospec=True, return_value=im
+        )
+
+        result = grabber.download_image()
+
+        grabber.get_image_from_url.assert_called_once_with(url)
+        assert result is im
+
+    def test_download_image__diff_downloader(self, mocker):
+        im = Image()
+        url = 'http://example.com'
+        grabber = Grabber(url)
+
+        mock_downloader = mocker.Mock(return_value=im)
+        grabber.download_callable = mock_downloader
+
+        grabber.get_image_from_url = mocker.Mock(
+            grabber.get_image_from_url, autospec=True, return_value=im
+        )
+
+        result = grabber.download_image()
+
+        grabber.get_image_from_url.assert_not_called()
+        mock_downloader.assert_called_once_with(url)
+        assert result is im
+
     @httpretty.activate
-    def test_get_image_from_url(self, mocker):
+    def test_get_image_from_url(self):
         dummy_url = 'http://a-url.com/'
         dummy_timeout = 123
         dummy_image_path = os.path.join(
