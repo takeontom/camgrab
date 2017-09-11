@@ -130,7 +130,9 @@ class TestGrabber(object):
         grabber.handle_received_image(im)
         grabber.should_save_image.assert_called_once_with()
         grabber.do_save_image.assert_not_called()
-        grabber.do_send_to_callable.assert_called_with(im, **dummy_meta)
+        grabber.do_send_to_callable.assert_called_with(
+            grabber.send_to_callable, im, **dummy_meta
+        )
 
     def test_should_save_image(self):
         good_grabber = Grabber('http://example.com')
@@ -211,18 +213,15 @@ class TestGrabber(object):
     def test_do_send_to_callable(self, mocker):
         im = Image()
         grabber = Grabber('http://example.com')
-        grabber.send_to_callable = None
 
         with pytest.raises(TypeError):
-            grabber.do_send_to_callable(im, saved=True)
+            grabber.do_send_to_callable(None, im, saved=True)
 
-        grabber.send_to_callable = mocker.Mock()
+        mock_callable = mocker.Mock()
 
-        grabber.do_send_to_callable(im, saved=True)
+        grabber.do_send_to_callable(mock_callable, im, saved=True)
 
-        grabber.send_to_callable.assert_called_once_with(
-            im, saved=True
-        )
+        mock_callable.assert_called_once_with(im, saved=True)
 
     def test_create_save_path_dirs(self, mocker):
         mocked_makedirs = mocker.patch('camgrab.camgrab.makedirs')
