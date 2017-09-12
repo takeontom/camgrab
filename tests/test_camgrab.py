@@ -9,7 +9,6 @@ from camgrab.camgrab import Grabber
 
 
 class TestGrabber(object):
-
     def test_init(self):
         url = 'http://example.com'
         grabber = Grabber(url)
