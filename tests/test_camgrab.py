@@ -1,10 +1,11 @@
 import os
-import httpretty
-import pytest
-from camgrab.camgrab import Grabber
 from datetime import datetime
 
+import httpretty
+import pytest
 from PIL.Image import Image
+
+from camgrab.camgrab import Grabber
 
 
 class TestGrabber(object):
@@ -105,8 +106,10 @@ class TestGrabber(object):
         dummy_body = open(dummy_image_path, 'rb').read()
 
         httpretty.register_uri(
-            httpretty.GET, dummy_url,
-            body=dummy_body, content_type='image/jpeg'
+            httpretty.GET,
+            dummy_url,
+            body=dummy_body,
+            content_type='image/jpeg'
         )
 
         grabber = Grabber('http://example.com')
@@ -276,7 +279,8 @@ class TestGrabber(object):
 
         dummy_save_path = 'some/save/path.jpg'
         grabber.get_full_save_path = mocker.Mock(
-            grabber.get_full_save_path, autospec=True,
+            grabber.get_full_save_path,
+            autospec=True,
             return_value=dummy_save_path
         )
 
@@ -358,7 +362,9 @@ class TestGrabber(object):
 
         full_save_path = grabber.get_full_save_path()
         assert full_save_path == expected
-        grabber.format_path.assert_called_once_with('a_dir/{Y}{m}{d}/blah/{H}{M}{S}{f}.jpg')
+        grabber.format_path.assert_called_once_with(
+            'a_dir/{Y}{m}{d}/blah/{H}{M}{S}{f}.jpg'
+        )
 
     def test_format_path(self, mocker):
         mocked_datetime = mocker.patch(

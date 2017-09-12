@@ -1,10 +1,11 @@
+import urllib.request
 from datetime import datetime
-from time import sleep
+from io import BytesIO
 from os import makedirs
 from os.path import dirname
-import urllib.request
+from time import sleep
+
 from PIL import Image
-from io import BytesIO
 
 
 class Grabber(object):
@@ -58,9 +59,9 @@ class Grabber(object):
             When set to ``False``, the _desired_ save location for an image
             is still passed to the callable in the meta information.
 
-        download_callable: A callable to use for the image downloading. By default
-            will use the ``get_image_from_url`` downloader, which handles
-            getting images from a simple URL.
+        download_callable: A callable to use for the image downloading. By
+            default will use the ``get_image_from_url`` downloader, which
+            handles getting images from a simple URL.
 
             If a different callable is used, it must use the following
             signature::
@@ -77,7 +78,11 @@ class Grabber(object):
     """
 
     def __init__(
-        self, url, every=2, save_to='grabbed_images', download_callable=None,
+        self,
+        url,
+        every=2,
+        save_to='grabbed_images',
+        download_callable=None,
         send_to_callable=None
     ):
         self.url = url
@@ -104,6 +109,7 @@ class Grabber(object):
         override this method, or write a custom script to handle the timing,
         which then simply calls the grabber's ``tick()`` method.
         """
+
         def do_next_tick(counter):
             # Allows for easier testing.
             max_ticks = self._test_max_ticks
@@ -182,7 +188,8 @@ class Grabber(object):
         """Create a dict containing meta information about the camgrab tick.
 
         Args:
-            saved (bool): Whether the image has been saved to the filesystem or not.
+            saved (bool): Whether the image has been saved to the filesystem or
+                not.
 
         Returns:
             dict: The generated meta data, e.g.::
@@ -190,7 +197,7 @@ class Grabber(object):
                     'is_saved': True,
                     'now': datetime.Datetime(),
                     'save_dir': 'some-save-dir',
-                    'save_full_path': 'some-save-dir/images/20170102/141516.jpg',
+                    'save_full_path': 'some-dir/images/20170102/141516.jpg',
                     'url': 'http://someurl.com',
                 }
         """
