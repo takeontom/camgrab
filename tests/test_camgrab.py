@@ -114,55 +114,126 @@ class TestGrabber(object):
 
         grabber.get_image_from_url(dummy_url)
 
-    def test_handle_received_image(self, mocker):
-        grabber = Grabber('http://example.com')
+    def test_handle_received_image__no_action(self, mocker):
         im = Image()
 
+        dummy_meta = {
+            'saved': True,
+            'other_meta': 'some value',
+        }
+
+        grabber = Grabber('http://example.com')
         grabber.do_save_image = mocker.Mock(
             grabber.do_save_image, autospec=True, return_value=True
         )
         grabber.do_send_to_callable = mocker.Mock(
             grabber.do_send_to_callable, autospec=True, return_value=True
         )
+        grabber.generate_meta = mocker.Mock(
+            grabber.generate_meta, autospec=True, return_value=dummy_meta
+        )
+        grabber.should_save_image = mocker.Mock(
+            grabber.should_save_image, autospec=True, return_value=False
+        )
+        grabber.send_to_callable = None
+
+        grabber.handle_received_image(im)
+
+        grabber.should_save_image.assert_called_once_with()
+        grabber.do_save_image.assert_not_called()
+        grabber.do_send_to_callable.assert_not_called()
+
+    def test_handle_received_image__only_save(self, mocker):
+        im = Image()
 
         dummy_meta = {
             'saved': True,
             'other_meta': 'some value',
         }
+
+        grabber = Grabber('http://example.com')
+        grabber.do_save_image = mocker.Mock(
+            grabber.do_save_image, autospec=True, return_value=True
+        )
+        grabber.do_send_to_callable = mocker.Mock(
+            grabber.do_send_to_callable, autospec=True, return_value=True
+        )
         grabber.generate_meta = mocker.Mock(
             grabber.generate_meta, autospec=True, return_value=dummy_meta
         )
-
-        # Shouldn't save or send to callable
-        grabber.should_save_image = mocker.Mock(
-            grabber.should_save_image, autospec=True, return_value=False
-        )
-        grabber.send_to_callable = None
-        grabber.handle_received_image(im)
-        grabber.should_save_image.assert_called_once_with()
-        grabber.do_save_image.assert_not_called()
-        grabber.do_send_to_callable.assert_not_called()
-
-        # Should save, but not send to callable
         grabber.should_save_image = mocker.Mock(
             grabber.should_save_image, autospec=True, return_value=True
         )
+        grabber.send_to_callable = None
+
         grabber.handle_received_image(im)
+
         grabber.should_save_image.assert_called_once_with()
         grabber.do_save_image.assert_called_once_with(im)
         grabber.do_send_to_callable.assert_not_called()
 
-        # Don't save, but do send to callable
+    def test_handle_received_image__only_send_to_callable(self, mocker):
+        im = Image()
+
+        dummy_meta = {
+            'saved': True,
+            'other_meta': 'some value',
+        }
+
+        grabber = Grabber('http://example.com')
+
+        grabber.do_save_image = mocker.Mock(
+            grabber.do_save_image, autospec=True
+        )
+        grabber.do_send_to_callable = mocker.Mock(
+            grabber.do_send_to_callable, autospec=True, return_value=True
+        )
+        grabber.generate_meta = mocker.Mock(
+            grabber.generate_meta, autospec=True, return_value=dummy_meta
+        )
         grabber.should_save_image = mocker.Mock(
             grabber.should_save_image, autospec=True, return_value=False
         )
-        grabber.do_save_image = mocker.Mock(
-            grabber.do_save_image, autospec=True, return_value=True
-        )
         grabber.send_to_callable = lambda x: x
+
         grabber.handle_received_image(im)
+
+        grabber.generate_meta.assert_called_once_with(False)
         grabber.should_save_image.assert_called_once_with()
         grabber.do_save_image.assert_not_called()
+        grabber.do_send_to_callable.assert_called_with(
+            grabber.send_to_callable, im, **dummy_meta
+        )
+
+    def test_handle_received_image__save_and_send_to_callable(self, mocker):
+        im = Image()
+
+        dummy_meta = {
+            'saved': True,
+            'other_meta': 'some value',
+        }
+
+        grabber = Grabber('http://example.com')
+
+        grabber.do_save_image = mocker.Mock(
+            grabber.do_save_image, autospec=True
+        )
+        grabber.do_send_to_callable = mocker.Mock(
+            grabber.do_send_to_callable, autospec=True, return_value=True
+        )
+        grabber.generate_meta = mocker.Mock(
+            grabber.generate_meta, autospec=True, return_value=dummy_meta
+        )
+        grabber.should_save_image = mocker.Mock(
+            grabber.should_save_image, autospec=True, return_value=True
+        )
+        grabber.send_to_callable = lambda x: x
+
+        grabber.handle_received_image(im)
+
+        grabber.generate_meta.assert_called_once_with(True)
+        grabber.should_save_image.assert_called_once_with()
+        grabber.do_save_image.assert_called_once_with(im)
         grabber.do_send_to_callable.assert_called_with(
             grabber.send_to_callable, im, **dummy_meta
         )

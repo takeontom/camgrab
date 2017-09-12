@@ -27,3 +27,44 @@ grabber.begin()
 ```
 
 ## Examples
+
+### Adding a custom image handler
+
+Grab an image every 5 seconds and it to a custom callable, without saving it, and print the image's dimensions.
+
+```python
+from camgrab import Grabber
+
+url = 'http://62.163.242.211:8080/out.jpg'
+
+
+def print_dimensions(im, **meta):
+    width, height = im.size
+    print('{width} pixels wide, {height} pixels high!'.format(width=width, height=height))
+
+grabber = Grabber(url, every=5, send_to_callable=print_dimensions)
+grabber.save = False
+grabber.begin()
+```
+
+### Take control of the main loop
+
+As the main loop created by the `begin()` method is unthreaded, provides no output, has a static delay between grab attempts, etc. it might be too simple for your needs.
+
+To get around this, simply call the `tick()` method within your own loop:
+
+```python
+from random import random
+from time import sleep
+
+from camgrab import Grabber
+
+url = 'http://62.163.242.211:8080/out.jpg'
+grabber = Grabber(url)
+
+while True:
+    grabber.tick()
+
+    # Wait somewhere between 0 and 10 seconds
+    sleep(random() * 10)
+```

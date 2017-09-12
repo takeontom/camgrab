@@ -171,7 +171,8 @@ class Grabber(object):
         """
         saved = False
         if self.should_save_image():
-            saved = self.do_save_image(im)
+            self.do_save_image(im)
+            saved = True
 
         if self.send_to_callable:
             meta = self.generate_meta(saved)
