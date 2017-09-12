@@ -68,3 +68,7 @@ while True:
     # Wait somewhere between 0 and 10 seconds
     sleep(random() * 10)
 ```
+
+## License
+
+camgrab is free software, distributed under the MIT license.
