@@ -1,1 +1,1 @@
-from camgrab.camgrab import Grabber
+from camgrab.camgrab import Grabber  # noqa: F401
