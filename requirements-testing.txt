@@ -1,0 +1,6 @@
+pytest==3.2.2
+pytest-cov==2.5.1
+pytest-mock==1.6.2
+pytest-testmon==0.9.6
+pytest-watch==4.1.0
+httpretty==0.8.14

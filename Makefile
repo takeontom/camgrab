@@ -17,10 +17,10 @@ isort-format:
 	isort -rc --atomic .
 
 isort-lint:
-	isort -rc -c .
+	isort -rc -df -c camgrab tests
 
 yapf-format:
-	yapf -i -r --style .style.yapf .
+	yapf -i -r --style .style.yapf -p camgrab tests
 
 yapf-lint:
-	yapf -d -r --style .style.yapf .
+	yapf -d -r --style .style.yapf -p camgrab tests
