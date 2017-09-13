@@ -3,7 +3,9 @@ from datetime import datetime
 from io import BytesIO
 from os import makedirs
 from os.path import dirname
+from socket import timeout
 from time import sleep
+from urllib.error import HTTPError
 
 from PIL import Image
 
@@ -75,6 +77,12 @@ class Grabber(object):
             The callable should have the following signature::
 
                 def some_callable(im, **meta):
+
+        ignore_timeout: Whether timeout errors should be ignored. Default: True
+
+        ignore_403: Whether HTTP 403 errors should be ignored. Default: False
+        ignore_404: Whether HTTP 404 errors should be ignored. Default: False
+        ignore_500: Whether HTTP 500 errors should be ignored. Default: True
     """
 
     def __init__(
@@ -95,6 +103,11 @@ class Grabber(object):
 
         self.send_to_callable = send_to_callable
         self.download_callable = download_callable
+
+        self.ignore_timeout = True
+        self.ignore_403 = False
+        self.ignore_404 = False
+        self.ignore_500 = True
 
         # Will bail after running this many ticks
         self._test_max_ticks = None
@@ -147,13 +160,37 @@ class Grabber(object):
             def some_downloader(url):
 
         Returns:
-            PIL.Image.Image: The downloaded image.
+            PIL.Image.Image: The downloaded image, or None if a squashed error
+                was encountered.
         """
+        download_callable = None
         if self.download_callable:
-            im = self.download_callable(self.url)
+            download_callable = self.download_callable
         else:
-            im = self.get_image_from_url(self.url)
+            download_callable = self.get_image_from_url
+
+        im = None
+        try:
+            im = download_callable(self.url)
+        except Exception as e:
+            if not self.ignore_download_exception(e):
+                raise e
         return im
+
+    def ignore_download_exception(self, e):
+        def ignore_http_code(code):
+            attribute = 'ignore_{}'.format(code)
+            return getattr(self, attribute)
+
+        # Basic socket timeout
+        if isinstance(e, timeout):
+            return self.ignore_timeout
+
+        # urllib HTTP errors
+        if isinstance(e, HTTPError):
+            return ignore_http_code(e.code)
+
+        return False
 
     def get_image_from_url(self, url):
         """Attempt to get an image from the supplied URL.

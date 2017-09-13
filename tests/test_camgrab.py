@@ -1,5 +1,7 @@
 import os
 from datetime import datetime
+from socket import timeout
+from urllib.error import HTTPError
 
 import httpretty
 import pytest
@@ -13,11 +15,24 @@ class TestGrabber(object):
         url = 'http://example.com'
         grabber = Grabber(url)
 
+        # Default attribute values
         assert grabber.url == url
         assert grabber.every == 2
         assert grabber.save_to == 'grabbed_images'
         assert grabber.send_to_callable is None
         assert grabber.download_callable is None
+        assert grabber.timeout == 30
+        assert grabber.save_filename == (
+            '{Y}{m}{d}/{H}/{Y}{m}{d}-{H}{M}{S}-{f}.jpg'
+        )
+        assert grabber.save is True
+
+        assert grabber.ignore_timeout is True
+        assert grabber.ignore_403 is False
+        assert grabber.ignore_404 is False
+        assert grabber.ignore_500 is True
+
+        assert grabber._test_max_ticks is None
 
         kwargs = {
             'url': url,
@@ -77,6 +92,52 @@ class TestGrabber(object):
         grabber.get_image_from_url.assert_called_once_with(url)
         assert result is im
 
+    def test_download_image__exception_raised(self, mocker):
+        im = Image()
+        url = 'http://example.com'
+        grabber = Grabber(url)
+
+        e = Exception()
+        grabber.get_image_from_url = mocker.Mock(
+            grabber.get_image_from_url,
+            autospec=True,
+            return_value=im,
+            side_effect=e
+        )
+
+        grabber.ignore_download_exception = mocker.Mock(
+            grabber.ignore_download_exception, autospec=True, side_effect=e
+        )
+
+        with pytest.raises(Exception):
+            grabber.download_image()
+
+        grabber.get_image_from_url.assert_called_once_with(url)
+        grabber.ignore_download_exception.assert_called_once_with(e)
+
+    def test_download_image__exception_ignored(self, mocker):
+        im = Image()
+        url = 'http://example.com'
+        grabber = Grabber(url)
+
+        e = Exception()
+        grabber.get_image_from_url = mocker.Mock(
+            grabber.get_image_from_url,
+            autospec=True,
+            return_value=im,
+            side_effect=e
+        )
+
+        grabber.ignore_download_exception = mocker.Mock(
+            grabber.ignore_download_exception,
+            autospec=True,
+        )
+
+        result = grabber.download_image()
+        assert result is None
+        grabber.get_image_from_url.assert_called_once_with(url)
+        grabber.ignore_download_exception.assert_called_once_with(e)
+
     def test_download_image__diff_downloader(self, mocker):
         im = Image()
         url = 'http://example.com'
@@ -94,6 +155,39 @@ class TestGrabber(object):
         grabber.get_image_from_url.assert_not_called()
         mock_downloader.assert_called_once_with(url)
         assert result is im
+
+    def test_ignore_download_exception__ignores_general_exceptions(self):
+        grabber = Grabber('http://example.com')
+        e = Exception()
+        assert grabber.ignore_download_exception(e) is False
+
+    def test_ignore_download_exception(self):
+        url = 'http://example.com'
+        http_status_codes = (403, 404, 500)
+
+        socket_errors = ((timeout(), 'ignore_timeout'), )
+
+        urllib_errors = []
+        for code in http_status_codes:
+            urllib_errors.append(
+                (
+                    HTTPError(url=url, code=code, msg='msg', hdrs={}, fp=None),
+                    'ignore_{}'.format(code),
+                )
+            )
+
+        errors_and_flags = tuple(socket_errors) + tuple(urllib_errors)
+
+        grabber = Grabber('http://example.com')
+
+        for e, flag in errors_and_flags:
+            # Ignore error
+            setattr(grabber, flag, True)
+            assert grabber.ignore_download_exception(e) is True
+
+            # Don't ignore error
+            setattr(grabber, flag, False)
+            assert grabber.ignore_download_exception(e) is False
 
     @httpretty.activate
     def test_get_image_from_url(self):
