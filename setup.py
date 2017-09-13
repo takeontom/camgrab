@@ -8,7 +8,7 @@ with open(readme, encoding='utf-8') as f:
 
 setup(
     name='camgrab',
-    version='0.8.1',
+    version='0.8.2',
     description='Python library for grabbing images from webcams',
     long_description=long_description,
     author='Tom Smith',
