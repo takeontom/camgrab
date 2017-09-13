@@ -1,6 +1,7 @@
 #!/usr/bin/env python
-from setuptools import setup
 from os import path
+
+from setuptools import setup
 
 readme = path.join(path.abspath(path.dirname(__file__)), 'README.rst')
 with open(readme, encoding='utf-8') as f:
@@ -15,7 +16,7 @@ setup(
     author_email='tom@takeontom.com',
     url='https://github.com/takeontom/camgrab',
     packages=['camgrab'],
-    install_requires=('pillow>=4',),
+    install_requires=('pillow>=4', ),
     license='MIT license',
     classifiers=(
         'Development Status :: 2 - Pre-Alpha',

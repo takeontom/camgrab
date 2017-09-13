@@ -57,16 +57,16 @@ flake8-lint:
 	flake8
 
 isort-format:
-	isort -rc --atomic .
+	isort -rc --atomic camgrab tests setup.py
 
 isort-lint:
-	isort -rc -df -c camgrab tests
+	isort -rc -df -c camgrab tests setup.py
 
 yapf-format:
-	yapf -i -r --style .style.yapf -p camgrab tests
+	yapf -i -r --style .style.yapf -p camgrab tests setup.py
 
 yapf-lint:
-	yapf -d -r --style .style.yapf -p camgrab tests
+	yapf -d -r --style .style.yapf -p camgrab tests setup.py
 
 tox-test:
 	tox -r
