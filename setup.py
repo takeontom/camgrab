@@ -1,10 +1,16 @@
 #!/usr/bin/env python
 from setuptools import setup
+from os import path
+
+readme = path.join(path.abspath(path.dirname(__file__)), 'README.rst')
+with open(readme, encoding='utf-8') as f:
+    long_description = f.read()
 
 setup(
     name='camgrab',
-    version='0.8',
+    version='0.8.1',
     description='Python library for grabbing images from webcams',
+    long_description=long_description,
     author='Tom Smith',
     author_email='tom@takeontom.com',
     url='https://github.com/takeontom/camgrab',

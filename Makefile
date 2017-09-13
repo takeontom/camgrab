@@ -1,6 +1,6 @@
 format: yapf-format isort-format
 
-lint: flake8-lint isort-lint yapf-lint
+lint: flake8-lint isort-lint yapf-lint dist-check
 
 test: pytest-test
 
@@ -12,10 +12,13 @@ clean: build-clean python-clean pytest-clean tox-clean
 release: dist ## package and upload a release
 	twine upload dist/*
 
-dist: clean ## builds source and wheel package
+dist: dist-check clean ## builds source and wheel package
 	python setup.py sdist
 	python setup.py bdist_wheel
 	ls -l dist
+
+dist-check:
+	python setup.py check -mrs
 
 build-clean:
 	rm -fr build/
@@ -23,6 +26,15 @@ build-clean:
 	rm -fr .eggs/
 	find . -name '*.egg-info' -exec rm -fr {} +
 	find . -name '*.egg' -exec rm -f {} +
+
+readme-html:
+	rst2html README.rst > /tmp/camgrab-readme.html
+
+readme-browser: readme-html
+	xdg-open "file:///tmp/camgrab-readme.html"
+
+readme-watch:
+	watchmedo shell-command --pattern="./README.rst" --command="make readme-html" .
 
 python-clean:
 	find . -name '*.pyc' -exec rm -f {} +
