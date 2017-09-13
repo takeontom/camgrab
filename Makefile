@@ -4,12 +4,14 @@ lint: flake8-lint isort-lint yapf-lint dist-check
 
 test: pytest-test
 
+test-full: tox-test
+
 test-watch:
 	ptw --onpass "py.test --cov=camgrab --cov-report=term-missing" -- --testmon
 
 clean: build-clean python-clean pytest-clean tox-clean
 
-release: dist ## package and upload a release
+release: test-full dist ## package and upload a release
 	twine upload dist/*
 
 dist: dist-check clean ## builds source and wheel package
