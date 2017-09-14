@@ -107,3 +107,4 @@ ENV/
 .testmondata-journal
 .tmontmp
 .vscode
+_build
