@@ -5,7 +5,7 @@ from os import makedirs
 from os.path import dirname
 from socket import timeout
 from time import sleep
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from PIL import Image
 
@@ -33,7 +33,7 @@ class Grabber(object):
             an image. Floats are fine for the number of seconds, so `0.2` will
             attempt to grab an image 5 times a second.
 
-        save_to: The root directory to save images to. Can be a directory
+        save_dir: The root directory to save images to. Can be a directory
             relative to the current project, or an absolute path to anywhere
             on the system.
 
@@ -89,20 +89,22 @@ class Grabber(object):
         self,
         url,
         every=2,
-        save_to='grabbed_images',
+        save_dir='grabbed_images',
         download_callable=None,
-        send_to_callable=None
+        extra_result_handlers=None
     ):
         self.url = url
         self.every = every
-        self.save_to = save_to
+        self.save_dir = save_dir
 
         self.timeout = 30
         self.save_filename = '{Y}{m}{d}/{H}/{Y}{m}{d}-{H}{M}{S}-{f}.jpg'
         self.save = True
 
-        self.send_to_callable = send_to_callable
         self.download_callable = download_callable
+        self.default_result_handlers = (self.do_save_image, )
+        self.extra_result_handlers = extra_result_handlers or []
+        self.result_handlers = None
 
         self.ignore_timeout = True
         self.ignore_403 = False
@@ -144,8 +146,8 @@ class Grabber(object):
             1) Download an image
             2) Process the downloaded image
         """
-        im = self.download_image()
-        self.handle_received_image(im)
+        result = self.download_image()
+        self.handle_received_image(result)
 
     def download_image(self):
         """Attempt to download an image from the grabber's URL.
@@ -163,11 +165,17 @@ class Grabber(object):
             PIL.Image.Image: The downloaded image, or None if a squashed error
                 was encountered.
         """
+        now = datetime.now()
+        request = {'requested_at': now, 'url': self.url}
+
         download_callable = None
         if self.download_callable:
             download_callable = self.download_callable
         else:
             download_callable = self.get_image_from_url
+
+        result = request.copy()
+        result['error'] = None
 
         im = None
         try:
@@ -175,7 +183,11 @@ class Grabber(object):
         except Exception as e:
             if not self.ignore_download_exception(e):
                 raise e
-        return im
+            result['error'] = e
+
+        result['image'] = im
+
+        return result
 
     def ignore_download_exception(self, e):
         def ignore_http_code(code):
@@ -185,6 +197,11 @@ class Grabber(object):
         # Basic socket timeout
         if isinstance(e, timeout):
             return self.ignore_timeout
+
+        # socket timeout caught by urllib
+        if isinstance(e, URLError):
+            if isinstance(e.reason, timeout):
+                return self.ignore_timeout
 
         # urllib HTTP errors
         if isinstance(e, HTTPError):
@@ -206,20 +223,25 @@ class Grabber(object):
         im = Image.open(fp)
         return im
 
-    def handle_received_image(self, im):
+    def handle_received_image(self, result):
         """Process the supplied image as per the grabber's configuration.
 
         Args:
-            im (PIL.Image.Image): The image to process as a Pillow Image.
+            result (dict): The grabbed cam image, with meta information, to be
+                processed.
         """
-        saved = False
-        if self.should_save_image():
-            self.do_save_image(im)
-            saved = True
+        for handler in self.get_result_handlers():
+            result = handler(result, self)
+        return result
 
-        if self.send_to_callable:
-            meta = self.generate_meta(saved)
-            self.do_send_to_callable(self.send_to_callable, im, **meta)
+    def get_result_handlers(self):
+        if self.result_handlers:
+            return self.result_handlers
+
+        default = tuple(self.default_result_handlers or ())
+        extra = tuple(self.extra_result_handlers or ())
+
+        return default + extra
 
     def generate_meta(self, saved):
         """Create a dict containing meta information about the camgrab tick.
@@ -242,7 +264,7 @@ class Grabber(object):
         meta = {
             'is_saved': saved,
             'now': now,
-            'save_dir': self.save_to,
+            'save_dir': self.save_dir,
             'save_full_path': self.get_full_save_path(),
             'url': self.url,
         }
@@ -252,52 +274,37 @@ class Grabber(object):
         """Check whether the Grabber is configured to save images.
 
         Image saving can be toggled off by setting the ``save``,
-        ``save_filename`` or ``save_to`` attributes to None.
+        ``save_filename`` or ``save_dir`` attributes to None.
 
         Returns:
             bool: Whether the Grabber will attempt to save images or not.
         """
-        return bool(self.save and self.save_filename and self.save_to)
+        return bool(self.save and self.save_filename and self.save_dir)
 
-    def do_save_image(self, im):
+    def do_save_image(self, result, grabber):
         """Save the supplied image to the filesystem.
 
         Args:
             im (PIL.Image.Image): The Pillow Image to save.
         """
-        full_save_path = self.get_full_save_path()
-        self.make_save_path_dirs(full_save_path)
-        im.save(full_save_path)
+        result['save_dir'] = grabber.save_dir
+        result['save_full_path'] = grabber.get_full_save_path()
+        result['is_saved'] = False
 
-    def do_send_to_callable(self, the_callable, im, **meta):
-        """
-        Send the supplied image to the supplied callable.
+        if not result.get('image', False):
+            return result
 
-        The callable should have the following signature::
+        if grabber.should_save_image():
+            grabber.make_save_path_dirs(result['save_full_path'])
+            result['image'].save(result['save_full_path'])
+            result['is_saved'] = True
 
-            def some_callable(im, **meta):
-
-        See `generate_meta`_ for details on the meta information passed to
-        the callable.
-
-        No attempt is made to handle any exceptions raised by the callable,
-        so it is important the callable handles any likely exceptions itself.
-
-        The call to the callable is a blocking call. Therefore, if the callable
-        is going to perform lengthy operations, it is adviseable to implement
-        some flavour of threading within the callable itself.
-
-        Args:
-            the_callable: Any Python callable.
-            im (PIL.Image.Image): The Pillow Image to pass to the callable.
-            **meta: Meta data to pass to the callable.
-        """
-        the_callable(im, **meta)
+        return result
 
     def get_full_save_path(self):
         """Provide the full, token filtered, path to save the current to.
 
-        The full save path is a concatenation of the ``save_to`` and
+        The full save path is a concatenation of the ``save_dir`` and
         ``save_filename`` attributes, which are then token filtered.
 
         See `format_path`_ for details on the token filtering.
@@ -305,8 +312,8 @@ class Grabber(object):
         Returns:
             str: The full path to save the current image.
         """
-        save_full_path_raw = '{save_to}/{save_filename}'.format(
-            save_to=self.save_to, save_filename=self.save_filename
+        save_full_path_raw = '{save_dir}/{save_filename}'.format(
+            save_dir=self.save_dir, save_filename=self.save_filename
         )
         save_full_path = self.format_path(save_full_path_raw)
         return save_full_path
