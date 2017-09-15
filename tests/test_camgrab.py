@@ -1,13 +1,64 @@
 import os
 from datetime import datetime
 from socket import timeout
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import httpretty
 import pytest
 from PIL import Image
 
-from camgrab.camgrab import Grabber
+from camgrab.camgrab import Grabber, do_save_image, get_image_from_url
+
+
+class TestGrabber_IntegrationTests(object):
+    @httpretty.activate
+    def test_save_simple_image(self, mocker):
+        dummy_datetime = datetime(2017, 1, 2, 12, 13, 14, 987654)
+        mocked_datetime = mocker.patch(
+            'camgrab.camgrab.datetime',
+            autospec=True,
+            return_value=dummy_datetime
+        )
+        mocked_datetime.now = mocker.Mock(return_value=dummy_datetime)
+        mock_sleep = mocker.patch('camgrab.camgrab.sleep', autospec=True)
+        mock_image_save = mocker.patch('camgrab.camgrab.Image.Image.save')
+        mock_makedirs = mocker.patch('camgrab.camgrab.makedirs')
+
+        dummy_url = 'http://some-url.com/image.jpg'
+        dummy_image_path = os.path.join(
+            os.path.dirname(__file__), 'assets', 'kitty.jpg'
+        )
+        dummy_body = open(dummy_image_path, 'rb').read()
+
+        httpretty.register_uri(
+            httpretty.GET,
+            dummy_url,
+            body=dummy_body,
+            content_type='image/jpeg'
+        )
+
+        num_ticks = 5
+        every = 5
+        save_dir = 'some_dir'
+
+        grabber = Grabber(dummy_url, every=every, save_dir=save_dir)
+        grabber._test_max_ticks = num_ticks
+
+        grabber.save_filename = '{Y}{m}{d}/{H}/{Y}{m}{d}-{H}{M}{S}-{f}.jpg'
+
+        expected_dir = 'some_dir/20170102/12'
+        expected_filename = 'some_dir/20170102/12/20170102-121314-987654.jpg'
+
+        grabber.begin()
+
+        assert mock_sleep.call_count == num_ticks
+        mock_sleep.assert_called_with(every)
+
+        assert mock_image_save.call_count == num_ticks
+        mock_image_save.assert_called_with(expected_filename)
+
+        assert mock_makedirs.call_count == num_ticks
+        mock_makedirs.assert_called_with(expected_dir, exist_ok=True)
 
 
 class TestGrabber(object):
@@ -19,8 +70,8 @@ class TestGrabber(object):
         assert grabber.url == url
         assert grabber.every == 2
         assert grabber.save_dir == 'grabbed_images'
-        assert grabber.download_callable is None
-        assert grabber.default_result_handlers == (grabber.do_save_image, )
+        assert grabber.download_callable == get_image_from_url
+        assert grabber.default_result_handlers == (do_save_image, )
         assert grabber.extra_result_handlers == []
         assert grabber.result_handlers is None
         assert grabber.timeout == 30
@@ -55,18 +106,26 @@ class TestGrabber(object):
         grabber.every = 13
 
         grabber.tick = mocker.Mock(grabber.tick, autospec=True)
-        mocked_sleep = mocker.patch('camgrab.camgrab.sleep', autospec=True)
+        mock_sleep = mocker.patch('camgrab.camgrab.sleep', autospec=True)
 
         grabber.begin()
 
-        grabber.tick.assert_call_count = 5
-        mocked_sleep.assert_call_count = 5
-        mocked_sleep.assert_called_with(13)
+        assert grabber.tick.call_count == 5
+        assert mock_sleep.call_count == 5
+        mock_sleep.assert_called_with(13)
 
     def test_tick(self, mocker):
         im = Image.Image()
 
+        dummy_request = {
+            'url': 'http://example.com',
+            'requested_at': datetime.now()
+        }
+
         grabber = Grabber('http://example.com')
+        grabber.create_request = mocker.Mock(
+            grabber.create_request, autospec=True, return_value=dummy_request
+        )
 
         dummy_result = {'image': im, 'requested_at': datetime.now()}
 
@@ -79,125 +138,124 @@ class TestGrabber(object):
 
         grabber.tick()
 
-        grabber.download_image.assert_called_once_with()
+        grabber.create_request.assert_called_once_with()
+        grabber.download_image.assert_called_once_with(dummy_request)
         grabber.handle_received_image.assert_called_once_with(dummy_result)
 
-    def test_download_image(self, mocker):
+    def test_create_request(self, mocker):
         mocked_datetime = mocker.patch(
             'camgrab.camgrab.datetime', autospec=True
         )
-        fake_datetime = datetime(2017, 1, 2, 12, 13, 14, 987654)
-        mocked_datetime.now = mocker.Mock(return_value=fake_datetime)
+        dummy_datetime = datetime(2017, 1, 2, 12, 13, 14, 987654)
+        mocked_datetime.now = mocker.Mock(return_value=dummy_datetime)
 
-        im = Image.Image()
         url = 'http://example.com'
         grabber = Grabber(url)
 
-        grabber.get_image_from_url = mocker.Mock(
-            grabber.get_image_from_url, autospec=True, return_value=im
+        expected_request = {
+            'url': url,
+            'requested_at': dummy_datetime,
+        }
+
+        assert grabber.create_request() == expected_request
+        mocked_datetime.now.assert_called_once_with()
+
+    def test_download_image(self, mocker):
+        correct_url = 'http://example.com'
+        dummy_image = Image.Image()
+        now = datetime.now()
+
+        dummy_request = {'requested_at': now, 'url': correct_url}
+        dummy_downloader = mocker.Mock(return_value=dummy_image)
+
+        grabber = Grabber('http://bad-url.com')
+        grabber.get_download_callable = mocker.Mock(
+            grabber.get_download_callable,
+            autospec=True,
+            return_value=dummy_downloader
         )
 
         expected_result = {
-            'requested_at': fake_datetime,
-            'url': url,
-            'image': im,
+            'requested_at': now,
+            'url': correct_url,
+            'image': dummy_image,
             'error': None,
         }
 
-        result = grabber.download_image()
+        result = grabber.download_image(dummy_request)
 
-        grabber.get_image_from_url.assert_called_once_with(url)
         assert result == expected_result
-        mocked_datetime.now.assert_called_once_with()
+        dummy_downloader.assert_called_once_with(correct_url, grabber)
+        grabber.get_download_callable.assert_called_once_with()
 
     def test_download_image__exception_raised(self, mocker):
-        im = Image.Image()
-        url = 'http://example.com'
-        grabber = Grabber(url)
-
+        correct_url = 'http://example.com'
+        now = datetime.now()
         e = Exception()
-        grabber.get_image_from_url = mocker.Mock(
-            grabber.get_image_from_url,
+
+        dummy_request = {'requested_at': now, 'url': correct_url}
+        dummy_downloader = mocker.Mock(side_effect=e)
+
+        grabber = Grabber('http://bad-url.com')
+        grabber.get_download_callable = mocker.Mock(
+            grabber.get_download_callable,
             autospec=True,
-            return_value=im,
-            side_effect=e
+            return_value=dummy_downloader,
         )
-
-        grabber.ignore_download_exception = mocker.Mock(
-            grabber.ignore_download_exception, autospec=True, side_effect=e
-        )
-
-        with pytest.raises(Exception):
-            grabber.download_image()
-
-        grabber.get_image_from_url.assert_called_once_with(url)
-        grabber.ignore_download_exception.assert_called_once_with(e)
-
-    def test_download_image__exception_ignored(self, mocker):
-        mocked_datetime = mocker.patch(
-            'camgrab.camgrab.datetime', autospec=True
-        )
-        fake_datetime = datetime(2017, 1, 2, 12, 13, 14, 987654)
-        mocked_datetime.now = mocker.Mock(return_value=fake_datetime)
-
-        im = Image.Image()
-        url = 'http://example.com'
-        grabber = Grabber(url)
-
-        e = Exception()
-        grabber.get_image_from_url = mocker.Mock(
-            grabber.get_image_from_url,
-            autospec=True,
-            return_value=im,
-            side_effect=e
-        )
-
         grabber.ignore_download_exception = mocker.Mock(
             grabber.ignore_download_exception,
             autospec=True,
+            return_value=False
+        )
+
+        with pytest.raises(Exception):
+            grabber.download_image(dummy_request)
+
+        grabber.get_download_callable.assert_called_once_with()
+        dummy_downloader.assert_called_once_with(correct_url, grabber)
+        grabber.ignore_download_exception.assert_called_once_with(e)
+
+    def test_download_image__exception_ignored(self, mocker):
+        correct_url = 'http://example.com'
+        now = datetime.now()
+        e = Exception()
+
+        dummy_request = {'requested_at': now, 'url': correct_url}
+        dummy_downloader = mocker.Mock(side_effect=e)
+
+        grabber = Grabber('http://bad-url.com')
+        grabber.get_download_callable = mocker.Mock(
+            grabber.get_download_callable,
+            autospec=True,
+            return_value=dummy_downloader,
+        )
+        grabber.ignore_download_exception = mocker.Mock(
+            grabber.ignore_download_exception,
+            autospec=True,
+            return_value=True
         )
 
         expected_result = {
-            'requested_at': fake_datetime,
-            'url': url,
+            'requested_at': now,
+            'url': correct_url,
             'image': None,
             'error': e
         }
-        result = grabber.download_image()
+
+        result = grabber.download_image(dummy_request)
+
         assert result == expected_result
-        grabber.get_image_from_url.assert_called_once_with(url)
+        grabber.get_download_callable.assert_called_once_with()
+        dummy_downloader.assert_called_once_with(correct_url, grabber)
         grabber.ignore_download_exception.assert_called_once_with(e)
 
-    def test_download_image__diff_downloader(self, mocker):
-        mocked_datetime = mocker.patch(
-            'camgrab.camgrab.datetime', autospec=True
-        )
-        fake_datetime = datetime(2017, 1, 2, 12, 13, 14, 987654)
-        mocked_datetime.now = mocker.Mock(return_value=fake_datetime)
+    def test_get_download_callable(self, mocker):
+        grabber = Grabber('http://example.com')
 
-        im = Image.Image()
-        url = 'http://example.com'
-        grabber = Grabber(url)
-
-        grabber.get_image_from_url = mocker.Mock(
-            grabber.get_image_from_url, autospec=True, return_value=im
-        )
-
-        expected_result = {
-            'requested_at': fake_datetime,
-            'url': url,
-            'image': im,
-            'error': None,
-        }
-
-        mock_downloader = mocker.Mock(return_value=im)
+        mock_downloader = mocker.Mock()
         grabber.download_callable = mock_downloader
 
-        result = grabber.download_image()
-
-        grabber.get_image_from_url.assert_not_called()
-        mock_downloader.assert_called_once_with(url)
-        assert result == expected_result
+        assert grabber.get_download_callable() is mock_downloader
 
     def test_ignore_download_exception__ignores_general_exceptions(self):
         grabber = Grabber('http://example.com')
@@ -206,20 +264,26 @@ class TestGrabber(object):
 
     def test_ignore_download_exception(self):
         url = 'http://example.com'
-        http_status_codes = (403, 404, 500)
 
         socket_errors = ((timeout(), 'ignore_timeout'), )
 
-        urllib_errors = []
+        urllib_errors = (
+            (URLError(reason=timeout(), filename=None), 'ignore_timeout'),
+        )
+
+        http_errors = []
+        http_status_codes = (403, 404, 500)
         for code in http_status_codes:
-            urllib_errors.append(
+            http_errors.append(
                 (
                     HTTPError(url=url, code=code, msg='msg', hdrs={}, fp=None),
                     'ignore_{}'.format(code),
                 )
             )
 
-        errors_and_flags = tuple(socket_errors) + tuple(urllib_errors)
+        errors_and_flags = (
+            tuple(socket_errors) + tuple(urllib_errors) + tuple(http_errors)
+        )
 
         grabber = Grabber('http://example.com')
 
@@ -231,30 +295,6 @@ class TestGrabber(object):
             # Don't ignore error
             setattr(grabber, flag, False)
             assert grabber.ignore_download_exception(e) is False
-
-    @httpretty.activate
-    def test_get_image_from_url(self):
-        dummy_url = 'http://a-url.com/'
-        dummy_timeout = 123
-        dummy_image_path = os.path.join(
-            os.path.dirname(__file__), 'assets', 'kitty.jpg'
-        )
-        dummy_body = open(dummy_image_path, 'rb').read()
-
-        expected_result = Image.open(dummy_image_path)
-
-        httpretty.register_uri(
-            httpretty.GET,
-            dummy_url,
-            body=dummy_body,
-            content_type='image/jpeg'
-        )
-
-        grabber = Grabber('http://example.com')
-        grabber.timeout = dummy_timeout
-
-        result = grabber.get_image_from_url(dummy_url)
-        assert result == expected_result
 
     def test_handle_received_image(self, mocker):
         grabber = Grabber('http://example.com')
@@ -374,151 +414,6 @@ class TestGrabber(object):
         for grabber in bad_grabbers:
             assert grabber.should_save_image() is False
 
-    def test_do_save_image__no_image(self, mocker):
-        grabber = Grabber('http://example.com')
-
-        im = Image.Image()
-        im.save = mocker.Mock(im.save, autospec=True)
-
-        dummy_result = {
-            'image': None,
-            'url': 'http://example.com',
-            'error': None,
-            'requested_at': datetime.now(),
-        }
-
-        dummy_save_path = 'some/save/path.jpg'
-        grabber.get_full_save_path = mocker.Mock(
-            grabber.get_full_save_path,
-            autospec=True,
-            return_value=dummy_save_path
-        )
-        grabber.make_save_path_dirs = mocker.Mock(
-            grabber.make_save_path_dirs, autospec=True
-        )
-        grabber.should_save_image = mocker.Mock(
-            grabber.should_save_image, autospec=True, return_value=False
-        )
-
-        expected_result = dummy_result.copy()
-        expected_result['is_saved'] = False
-        expected_result['save_dir'] = grabber.save_dir
-        expected_result['save_full_path'] = dummy_save_path
-
-        result = grabber.do_save_image(dummy_result, grabber)
-
-        grabber.get_full_save_path.assert_called_once_with()
-        grabber.should_save_image.assert_not_called()
-        grabber.make_save_path_dirs.assert_not_called()
-        im.save.assert_not_called()
-        assert result == expected_result
-
-    def test_do_save_image__save_disabled(self, mocker):
-        grabber = Grabber('http://example.com')
-
-        im = Image.Image()
-        im.save = mocker.Mock(im.save, autospec=True)
-
-        dummy_result = {
-            'image': im,
-            'url': 'http://example.com',
-            'error': None,
-            'requested_at': datetime.now(),
-        }
-
-        dummy_save_path = 'some/save/path.jpg'
-        grabber.get_full_save_path = mocker.Mock(
-            grabber.get_full_save_path,
-            autospec=True,
-            return_value=dummy_save_path
-        )
-
-        grabber.make_save_path_dirs = mocker.Mock(
-            grabber.make_save_path_dirs, autospec=True
-        )
-
-        grabber.should_save_image = mocker.Mock(
-            grabber.should_save_image, autospec=True, return_value=False
-        )
-
-        expected_result = dummy_result.copy()
-        expected_result['is_saved'] = False
-        expected_result['save_dir'] = grabber.save_dir
-        expected_result['save_full_path'] = dummy_save_path
-
-        result = grabber.do_save_image(dummy_result, grabber)
-
-        grabber.get_full_save_path.assert_called_once_with()
-        grabber.should_save_image.assert_called_with()
-        grabber.make_save_path_dirs.assert_not_called()
-        im.save.assert_not_called()
-        assert result == expected_result
-
-    def test_do_save_image__save_enabled(self, mocker):
-        grabber = Grabber('http://example.com')
-
-        im = Image.Image()
-        im.save = mocker.Mock(im.save, autospec=True)
-
-        dummy_result = {
-            'image': im,
-            'url': 'http://example.com',
-            'error': None,
-            'requested_at': datetime.now(),
-        }
-
-        dummy_save_path = 'some/save/path.jpg'
-        grabber.get_full_save_path = mocker.Mock(
-            grabber.get_full_save_path,
-            autospec=True,
-            return_value=dummy_save_path
-        )
-
-        grabber.make_save_path_dirs = mocker.Mock(
-            grabber.make_save_path_dirs, autospec=True
-        )
-
-        grabber.should_save_image = mocker.Mock(
-            grabber.should_save_image, autospec=True, return_value=True
-        )
-
-        expected_result = dummy_result.copy()
-        expected_result['is_saved'] = True
-        expected_result['save_dir'] = grabber.save_dir
-        expected_result['save_full_path'] = dummy_save_path
-
-        result = grabber.do_save_image(dummy_result, grabber)
-
-        assert result == expected_result
-        grabber.get_full_save_path.assert_called_once_with()
-        grabber.make_save_path_dirs.assert_called_once_with(dummy_save_path)
-        grabber.should_save_image.assert_called_with()
-        im.save.assert_called_once_with(dummy_save_path)
-
-    def test_generate_meta(self, mocker):
-        dummy_url = 'http://some-url.com'
-        dummy_save_dir = '/some/save/dir'
-        dummy_save_full_path = '/some/save/dir/2017-05-13/20170513-121314.jpg'
-        dummy_now = datetime(2017, 5, 13, 12, 13, 14)
-
-        mocked_datetime = mocker.patch(
-            'camgrab.camgrab.datetime', autospec=True
-        )
-        mocked_datetime.now = mocker.Mock(return_value=dummy_now)
-
-        expected = {
-            'save_dir': dummy_save_dir,
-            'save_full_path': dummy_save_full_path,
-            'is_saved': True,
-            'url': dummy_url,
-            'now': dummy_now,
-        }
-
-        grabber = Grabber(dummy_url)
-        grabber.save_dir = dummy_save_dir
-        grabber.save_filename = '{Y}-{m}-{d}/{Y}{m}{d}-{H}{M}{S}.jpg'
-        assert grabber.generate_meta(saved=True) == expected
-
     def test_create_save_path_dirs(self, mocker):
         mocked_makedirs = mocker.patch('camgrab.camgrab.makedirs')
         path = 'a_dir/somewhere/another_dir/final_file.jpg'
@@ -567,3 +462,149 @@ class TestGrabber(object):
         grabber = Grabber('http://example.com')
         result = grabber.format_path(path)
         assert result == expected
+
+
+@httpretty.activate
+def test_get_image_from_url():
+    dummy_url = 'http://a-url.com/'
+    dummy_timeout = 123
+    dummy_image_path = os.path.join(
+        os.path.dirname(__file__), 'assets', 'kitty.jpg'
+    )
+    dummy_body = open(dummy_image_path, 'rb').read()
+
+    expected_result = Image.open(dummy_image_path)
+
+    httpretty.register_uri(
+        httpretty.GET, dummy_url, body=dummy_body, content_type='image/jpeg'
+    )
+
+    grabber = Grabber('http://example.com')
+    grabber.timeout = dummy_timeout
+
+    result = get_image_from_url(dummy_url, grabber)
+    assert result == expected_result
+
+
+def test_do_save_image__no_image(mocker):
+    grabber = Grabber('http://example.com')
+
+    im = Image.Image()
+    im.save = mocker.Mock(im.save, autospec=True)
+
+    dummy_result = {
+        'image': None,
+        'url': 'http://example.com',
+        'error': None,
+        'requested_at': datetime.now(),
+    }
+
+    dummy_save_path = 'some/save/path.jpg'
+    grabber.get_full_save_path = mocker.Mock(
+        grabber.get_full_save_path,
+        autospec=True,
+        return_value=dummy_save_path
+    )
+    grabber.make_save_path_dirs = mocker.Mock(
+        grabber.make_save_path_dirs, autospec=True
+    )
+    grabber.should_save_image = mocker.Mock(
+        grabber.should_save_image, autospec=True, return_value=False
+    )
+
+    expected_result = dummy_result.copy()
+    expected_result['is_saved'] = False
+    expected_result['save_dir'] = grabber.save_dir
+    expected_result['save_full_path'] = dummy_save_path
+
+    result = do_save_image(dummy_result, grabber)
+
+    grabber.get_full_save_path.assert_called_once_with()
+    grabber.should_save_image.assert_not_called()
+    grabber.make_save_path_dirs.assert_not_called()
+    im.save.assert_not_called()
+    assert result == expected_result
+
+
+def test_do_save_image__save_disabled(mocker):
+    grabber = Grabber('http://example.com')
+
+    im = Image.Image()
+    im.save = mocker.Mock(im.save, autospec=True)
+
+    dummy_result = {
+        'image': im,
+        'url': 'http://example.com',
+        'error': None,
+        'requested_at': datetime.now(),
+    }
+
+    dummy_save_path = 'some/save/path.jpg'
+    grabber.get_full_save_path = mocker.Mock(
+        grabber.get_full_save_path,
+        autospec=True,
+        return_value=dummy_save_path
+    )
+
+    grabber.make_save_path_dirs = mocker.Mock(
+        grabber.make_save_path_dirs, autospec=True
+    )
+
+    grabber.should_save_image = mocker.Mock(
+        grabber.should_save_image, autospec=True, return_value=False
+    )
+
+    expected_result = dummy_result.copy()
+    expected_result['is_saved'] = False
+    expected_result['save_dir'] = grabber.save_dir
+    expected_result['save_full_path'] = dummy_save_path
+
+    result = do_save_image(dummy_result, grabber)
+
+    grabber.get_full_save_path.assert_called_once_with()
+    grabber.should_save_image.assert_called_with()
+    grabber.make_save_path_dirs.assert_not_called()
+    im.save.assert_not_called()
+    assert result == expected_result
+
+
+def test_do_save_image__save_enabled(mocker):
+    grabber = Grabber('http://example.com')
+
+    im = Image.Image()
+    im.save = mocker.Mock(im.save, autospec=True)
+
+    dummy_result = {
+        'image': im,
+        'url': 'http://example.com',
+        'error': None,
+        'requested_at': datetime.now(),
+    }
+
+    dummy_save_path = 'some/save/path.jpg'
+    grabber.get_full_save_path = mocker.Mock(
+        grabber.get_full_save_path,
+        autospec=True,
+        return_value=dummy_save_path
+    )
+
+    grabber.make_save_path_dirs = mocker.Mock(
+        grabber.make_save_path_dirs, autospec=True
+    )
+
+    grabber.should_save_image = mocker.Mock(
+        grabber.should_save_image, autospec=True, return_value=True
+    )
+
+    expected_result = dummy_result.copy()
+    expected_result['is_saved'] = True
+    expected_result['save_dir'] = grabber.save_dir
+    expected_result['save_full_path'] = dummy_save_path
+
+    result = do_save_image(dummy_result, grabber)
+
+    assert result == expected_result
+    grabber.get_full_save_path.assert_called_once_with()
+    grabber.make_save_path_dirs.assert_called_once_with(dummy_save_path)
+    grabber.should_save_image.assert_called_with()
+    im.save.assert_called_once_with(dummy_save_path)

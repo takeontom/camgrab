@@ -10,6 +10,42 @@ from urllib.error import HTTPError, URLError
 from PIL import Image
 
 
+def get_image_from_url(url, grabber):
+    """Attempt to get an image from the supplied URL.
+
+    Args:
+        url: The full URL to attempt to grab the image from.
+
+    Returns:
+        PIL.Image.Image: The downloaded image as a Pillow Image.
+    """
+    response = urllib.request.urlopen(url, timeout=grabber.timeout)
+    fp = BytesIO(response.read())
+    im = Image.open(fp)
+    return im
+
+
+def do_save_image(result, grabber):
+    """Save the supplied image to the filesystem.
+
+    Args:
+        im (PIL.Image.Image): The Pillow Image to save.
+    """
+    result['save_dir'] = grabber.save_dir
+    result['save_full_path'] = grabber.get_full_save_path()
+    result['is_saved'] = False
+
+    if not result.get('image', False):
+        return result
+
+    if grabber.should_save_image():
+        grabber.make_save_path_dirs(result['save_full_path'])
+        result['image'].save(result['save_full_path'])
+        result['is_saved'] = True
+
+    return result
+
+
 class Grabber(object):
     """Manages the downloading and processing of images from webcams.
 
@@ -101,8 +137,8 @@ class Grabber(object):
         self.save_filename = '{Y}{m}{d}/{H}/{Y}{m}{d}-{H}{M}{S}-{f}.jpg'
         self.save = True
 
-        self.download_callable = download_callable
-        self.default_result_handlers = (self.do_save_image, )
+        self.download_callable = download_callable or get_image_from_url
+        self.default_result_handlers = (do_save_image, )
         self.extra_result_handlers = extra_result_handlers or []
         self.result_handlers = None
 
@@ -146,10 +182,18 @@ class Grabber(object):
             1) Download an image
             2) Process the downloaded image
         """
-        result = self.download_image()
+        request = self.create_request()
+        result = self.download_image(request)
         self.handle_received_image(result)
 
-    def download_image(self):
+    def create_request(self):
+        request = {
+            'url': self.url,
+            'requested_at': datetime.now(),
+        }
+        return request
+
+    def download_image(self, request):
         """Attempt to download an image from the grabber's URL.
 
         By default, this will attempt to use the built in
@@ -165,21 +209,15 @@ class Grabber(object):
             PIL.Image.Image: The downloaded image, or None if a squashed error
                 was encountered.
         """
-        now = datetime.now()
-        request = {'requested_at': now, 'url': self.url}
-
-        download_callable = None
-        if self.download_callable:
-            download_callable = self.download_callable
-        else:
-            download_callable = self.get_image_from_url
+        url = request['url']
+        download_callable = self.get_download_callable()
 
         result = request.copy()
         result['error'] = None
 
         im = None
         try:
-            im = download_callable(self.url)
+            im = download_callable(url, self)
         except Exception as e:
             if not self.ignore_download_exception(e):
                 raise e
@@ -188,6 +226,9 @@ class Grabber(object):
         result['image'] = im
 
         return result
+
+    def get_download_callable(self):
+        return self.download_callable
 
     def ignore_download_exception(self, e):
         def ignore_http_code(code):
@@ -209,20 +250,6 @@ class Grabber(object):
 
         return False
 
-    def get_image_from_url(self, url):
-        """Attempt to get an image from the supplied URL.
-
-        Args:
-            url: The full URL to attempt to grab the image from.
-
-        Returns:
-            PIL.Image.Image: The downloaded image as a Pillow Image.
-        """
-        response = urllib.request.urlopen(url, timeout=self.timeout)
-        fp = BytesIO(response.read())
-        im = Image.open(fp)
-        return im
-
     def handle_received_image(self, result):
         """Process the supplied image as per the grabber's configuration.
 
@@ -243,33 +270,6 @@ class Grabber(object):
 
         return default + extra
 
-    def generate_meta(self, saved):
-        """Create a dict containing meta information about the camgrab tick.
-
-        Args:
-            saved (bool): Whether the image has been saved to the filesystem or
-                not.
-
-        Returns:
-            dict: The generated meta data, e.g.::
-                {
-                    'is_saved': True,
-                    'now': datetime.Datetime(),
-                    'save_dir': 'some-save-dir',
-                    'save_full_path': 'some-dir/images/20170102/141516.jpg',
-                    'url': 'http://someurl.com',
-                }
-        """
-        now = datetime.now()
-        meta = {
-            'is_saved': saved,
-            'now': now,
-            'save_dir': self.save_dir,
-            'save_full_path': self.get_full_save_path(),
-            'url': self.url,
-        }
-        return meta
-
     def should_save_image(self):
         """Check whether the Grabber is configured to save images.
 
@@ -280,26 +280,6 @@ class Grabber(object):
             bool: Whether the Grabber will attempt to save images or not.
         """
         return bool(self.save and self.save_filename and self.save_dir)
-
-    def do_save_image(self, result, grabber):
-        """Save the supplied image to the filesystem.
-
-        Args:
-            im (PIL.Image.Image): The Pillow Image to save.
-        """
-        result['save_dir'] = grabber.save_dir
-        result['save_full_path'] = grabber.get_full_save_path()
-        result['is_saved'] = False
-
-        if not result.get('image', False):
-            return result
-
-        if grabber.should_save_image():
-            grabber.make_save_path_dirs(result['save_full_path'])
-            result['image'].save(result['save_full_path'])
-            result['is_saved'] = True
-
-        return result
 
     def get_full_save_path(self):
         """Provide the full, token filtered, path to save the current to.
