@@ -267,7 +267,7 @@ class Grabber(object):
                 processed.
         """
         for handler in self.get_result_handlers():
-            result = handler(result, self)
+            result = handler(result, self) or result
         return result
 
     def get_result_handlers(self):

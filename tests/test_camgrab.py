@@ -332,6 +332,42 @@ class TestGrabber(object):
         mock_handler_1.assert_called_once_with(dummy_result, grabber)
         mock_handler_2.assert_called_once_with(mock_handler_1_return, grabber)
 
+    def test_handle_received_image__no_result_return(self, mocker):
+        dummy_result_original = {
+            'image': Image.Image(),
+            'requested_at': datetime.now(),
+            'url': 'http://example.com',
+            'error': None
+        }
+
+        dummy_result_after_1 = dummy_result_original.copy()
+        dummy_result_after_1['handler_1'] = 'done'
+
+        dummy_result_after_3 = dummy_result_after_1.copy()
+        dummy_result_after_3['handler_3'] = 'done'
+
+        mock_handler_1 = mocker.Mock(return_value=dummy_result_after_1)
+        mock_handler_2 = mocker.Mock(return_value=None)
+        mock_handler_3 = mocker.Mock(return_value=dummy_result_after_3)
+
+        grabber = Grabber('http://example.com')
+
+        mocker.patch.object(
+            grabber,
+            'get_result_handlers',
+            return_value=(mock_handler_1, mock_handler_2, mock_handler_3)
+        )
+
+        result = grabber.handle_received_image(dummy_result_original)
+
+        grabber.get_result_handlers.assert_called_once_with()
+
+        mock_handler_1.assert_called_once_with(dummy_result_original, grabber)
+        mock_handler_2.assert_called_once_with(dummy_result_after_1, grabber)
+        mock_handler_3.assert_called_once_with(dummy_result_after_1, grabber)
+
+        assert result == dummy_result_after_3
+
     def test_get_result_handlers(self, mocker):
         grabber = Grabber('http://example.com')
 
