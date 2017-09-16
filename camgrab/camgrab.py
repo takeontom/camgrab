@@ -1,3 +1,4 @@
+import re
 import urllib.request
 from datetime import datetime
 from io import BytesIO
@@ -6,14 +7,12 @@ from os.path import dirname
 from socket import timeout
 from time import sleep
 from urllib.error import HTTPError, URLError
-import re
 
-from PIL import Image
-from PIL import ImageFile
+from PIL import Image, ImageFile
 
 # High chance of getting slightly corrupted images from a webcam stream, so
 # make sure Pillow is being tolerant of this. Avoids èrrors like:
-# ``OSError: image file is truncated (30 bytes not processed)``.
+# `OSError: image file is truncated (30 bytes not processed)`.
 # https://stackoverflow.com/a/23575424
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -21,23 +20,39 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 def get_image_from_url(url, grabber):
     """Attempt to get an image from the supplied URL.
 
+    Is a bare-minimum download handler to get images from static urls which
+    will return an `image/jpeg` reponse.
+
     Args:
-        url: The full URL to attempt to grab the image from.
+        url (str): The full URL to attempt to grab the image from.
+        grabber (camgrab.Grabber): A Grabber instance, used to get settings,
+            etc. from.
 
     Returns:
         PIL.Image.Image: The downloaded image as a Pillow Image.
     """
     response = urllib.request.urlopen(url, timeout=grabber.timeout)
     fp = BytesIO(response.read())
+
+    # TODO: What error handling is needed here?
     im = Image.open(fp)
     return im
 
 
 def do_save_image(result, grabber):
-    """Save the supplied image to the filesystem.
+    """Result handler to save a result to the system.
+
+    Modifies the supplied result dict with:
+
+        * ``save_dir`` = the root directory for saving images
+        * ``save_path`` = the configured path for saving images
+        * ``save_path_full`` = the full path, token filtered
+        * ``is_saved`` = whether the image has actually been saved or not
 
     Args:
-        im (PIL.Image.Image): The Pillow Image to save.
+        result (dict): A result dict to process.
+        grabber (camgrab.Grabber): A Grabber instanced, used to get setings,
+            etc. from.
     """
     result['save_dir'] = grabber.save_dir
     result['save_path'] = grabber.get_save_path()
@@ -66,19 +81,62 @@ class Grabber(object):
         url: The publically accessible URL for the webcam image, is likely
             going to be something like: `'http://78.100.133.169:8888/out.jpg'`.
 
-            If using the default downloader, it is important the URL is to the
-            actual image, not HTML page displaying or linking to the image.
+            If using the default (``get_image_from_url()``) download handler,
+            it is important the URL is to an actual image (i.e. responds with a
+            ``image/jpeg`` content type), not a HTML page displaying or linking
+            to the image.
 
             Only webcams which provide images in JPG format are currently
             supported by the default downloader. If you need more advanced
             functionality, then perhaps write a downloader and pass it to the
             grabber using the ``download_callable`` attribute.
 
-        every: The number of seconds to wait between each attempt at grabbing
+        every: Default = ``2``
+
+            The number of seconds to wait between each attempt at grabbing
             an image. Floats are fine for the number of seconds, so `0.2` will
             attempt to grab an image 5 times a second.
 
-        save_dir: The root directory to save images to. Can be a directory
+        download_callable: Default = ``get_image_from_url``
+
+            A callable to use for the image downloading. By
+            default will use the ``get_image_from_url`` download handler, which
+            handles getting images from a simple URL.
+
+            If a different callable is used, it must use the following
+            signature::
+
+                def some_callable(url, grabber)
+
+        default_result_handlers: Default = ``(do_save_image, )``
+
+            An iterable of result handlers to use by default. Extra result
+            handlers can be set by using the ``extra_result_handlers``
+            attribute. Or the result handlers to use can be fully set using
+            the ``result_handlers`` attribute.
+
+            If the ``result_handlers`` attribute is set, the
+            ``default_result_handlers`` and ``extra_result_handlers``
+            attributes will be ignored.
+
+        extra_result_handlers: Default = ``[]``
+
+            A list of extra result handlers to include when processing results.
+
+            If the ``result_handlers`` attribute is set, the
+            ``default_result_handlers`` and ``extra_result_handlers``
+            attributes will be ignored.
+
+        result_handlers: Default = None
+
+            When set to an iterable of result handlers, will be used in
+            preference to the ``default_result_handlers`` and
+            ``extra_result_handlers`` attributes, allowing an easy way to
+            specify completely which handlers to use.
+
+        save_dir: Default = ``grabbed_images``
+
+            The root directory to save images to. Can be a directory
             relative to the current project, or an absolute path to anywhere
             on the system.
 
@@ -90,44 +148,40 @@ class Grabber(object):
             Supports various tokens for making dynamic directories as needed,
             see below for more information.
 
-        timeout: The number of seconds to wait before timing out a connection
-            to a webcam.
+        save_filename: Default = ``{Y}{m}{d}/{H}/{Y}{m}{d}-{H}{M}{S}-{f}.jpg``
 
-        save_filename: The filename to use for each downloaded image.
+            The filename to use for each downloaded image.
 
             Supports various tokens for making dynamic directories as needed,
             see below for more information.
 
-        save: Toggle the actual saving of each downloaded image. Useful when
+        save: Default = ``True``
+
+            Toggle the actual saving of each downloaded image. Useful when
             using the `send_to_callable` feature to only save images which
             defined by another algorithm. For example, to only save images
             if motion has been detected.
 
-            When set to ``False``, the _desired_ save location for an image
-            is still passed to the callable in the meta information.
+            This setting is dependant upon any result handlers respecting
+            the setting.
 
-        download_callable: A callable to use for the image downloading. By
-            default will use the ``get_image_from_url`` downloader, which
-            handles getting images from a simple URL.
+        timeout: Default = ``30``
 
-            If a different callable is used, it must use the following
-            signature::
+            The number of seconds to wait before timing out a connection to a
+            webcam.
 
-                def some_callable(url)
+        ignore_timeout: Default = ``True``
 
-        send_to_callable: Optionally set to a callable, and the Grabber will
-            pass each downloaded image (as a Pillow Image) and some meta
-            information to the callable.
+            Whether timeout errors should be ignored.
 
-            The callable should have the following signature::
+        ignore_xxx: Default: False
 
-                def some_callable(im, **meta):
+            Whether errors from specific HTTP status codes should be ignored.
 
-        ignore_timeout: Whether timeout errors should be ignored. Default: True
+            By default, the following are ignored: 500
 
-        ignore_403: Whether HTTP 403 errors should be ignored. Default: False
-        ignore_404: Whether HTTP 404 errors should be ignored. Default: False
-        ignore_500: Whether HTTP 500 errors should be ignored. Default: True
+            When not ignored, HTTP errors will need to be handled (or not) by
+            consuming code.
     """
 
     def __init__(
@@ -140,16 +194,18 @@ class Grabber(object):
     ):
         self.url = url
         self.every = every
-        self.save_dir = save_dir
-
-        self.timeout = 30
-        self.save_filename = '{Y}{m}{d}/{H}/{Y}{m}{d}-{H}{M}{S}-{f}.jpg'
-        self.save = True
 
         self.download_callable = download_callable or get_image_from_url
+
         self.default_result_handlers = (do_save_image, )
         self.extra_result_handlers = extra_result_handlers or []
         self.result_handlers = None
+
+        self.save_dir = save_dir
+        self.save_filename = '{Y}{m}{d}/{H}/{Y}{m}{d}-{H}{M}{S}-{f}.jpg'
+        self.save = True
+
+        self.timeout = 30
 
         self.ignore_timeout = True
         self.ignore_403 = False
@@ -180,7 +236,9 @@ class Grabber(object):
         while do_next_tick(counter):
             self.tick()
             sleep(self.every)
+
             if self._test_max_ticks:
+                # Let's not incrememt the counter unless it's needed.
                 counter += 1
 
     def tick(self):
@@ -188,8 +246,10 @@ class Grabber(object):
 
         Each tick does 2 simple things:
 
-            1) Download an image
-            2) Process the downloaded image
+            1) Attempt to download an image
+            2) Attempt to process the result
+
+        It's safe to call ``tick()`` from consuming code.
         """
         request = self.create_request()
         result = self.download_image(request)
