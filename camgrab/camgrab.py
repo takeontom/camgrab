@@ -6,8 +6,16 @@ from os.path import dirname
 from socket import timeout
 from time import sleep
 from urllib.error import HTTPError, URLError
+import re
 
 from PIL import Image
+from PIL import ImageFile
+
+# High chance of getting slightly corrupted images from a webcam stream, so
+# make sure Pillow is being tolerant of this. Avoids èrrors like:
+# ``OSError: image file is truncated (30 bytes not processed)``.
+# https://stackoverflow.com/a/23575424
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 def get_image_from_url(url, grabber):
@@ -32,15 +40,16 @@ def do_save_image(result, grabber):
         im (PIL.Image.Image): The Pillow Image to save.
     """
     result['save_dir'] = grabber.save_dir
-    result['save_full_path'] = grabber.get_full_save_path()
+    result['save_path'] = grabber.get_save_path()
+    result['save_path_full'] = grabber.format_path(result['save_path'], result)
     result['is_saved'] = False
 
     if not result.get('image', False):
         return result
 
     if grabber.should_save_image():
-        grabber.make_save_path_dirs(result['save_full_path'])
-        result['image'].save(result['save_full_path'])
+        grabber.make_save_path_dirs(result['save_path_full'])
+        result['image'].save(result['save_path_full'])
         result['is_saved'] = True
 
     return result
@@ -281,22 +290,11 @@ class Grabber(object):
         """
         return bool(self.save and self.save_filename and self.save_dir)
 
-    def get_full_save_path(self):
-        """Provide the full, token filtered, path to save the current to.
-
-        The full save path is a concatenation of the ``save_dir`` and
-        ``save_filename`` attributes, which are then token filtered.
-
-        See `format_path`_ for details on the token filtering.
-
-        Returns:
-            str: The full path to save the current image.
-        """
-        save_full_path_raw = '{save_dir}/{save_filename}'.format(
+    def get_save_path(self):
+        save_path = '{save_dir}/{save_filename}'.format(
             save_dir=self.save_dir, save_filename=self.save_filename
         )
-        save_full_path = self.format_path(save_full_path_raw)
-        return save_full_path
+        return save_path
 
     def make_save_path_dirs(self, save_path):
         """Create the directory and parent directories for the given path.
@@ -310,7 +308,7 @@ class Grabber(object):
         dirs = dirname(save_path)
         makedirs(dirs, exist_ok=True)
 
-    def format_path(self, path):
+    def format_path(self, path, request):
         """Token filter the supplied path.
 
         Available tokens:
@@ -329,7 +327,7 @@ class Grabber(object):
         Returns:
             str: The token filtered path.
         """
-        now = datetime.now()
+        now = request['requested_at']
 
         out = path.format(
             # All the standard strftime directives:
@@ -356,5 +354,14 @@ class Grabber(object):
             c=now.strftime('%c'),
             x=now.strftime('%x'),
             X=now.strftime('%X'),
+
+            # More from request
+            url=self.slugify(request['url']),
         )
         return out
+
+    def slugify(self, value):
+        # Just a slightly modified version of Django's slugify:
+        # https://docs.djangoproject.com/en/1.11/_modules/django/utils/text/#slugify
+        value = re.sub(r'[^\w\s-]', '-', value).strip().lower()
+        return re.sub(r'[-\s]+', '-', value)
