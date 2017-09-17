@@ -249,13 +249,23 @@ class Grabber(object):
             1) Attempt to download an image
             2) Attempt to process the result
 
-        It's safe to call ``tick()`` from consuming code.
+        It's safe to call ``tick()`` from consuming code, allowing easy
+        replacement of the ``begin()`` method, if needed.
         """
         request = self.create_request()
         result = self.download_image(request)
         self.handle_received_image(result)
 
     def create_request(self):
+        """Create the request dict to be used by download handlers.
+
+        The request dict which can be used to pass common information to the
+        download handler, ensuring the same "now" datetime is used throughout
+        the process.
+
+        Returns:
+            dict
+        """
         request = {
             'url': self.url,
             'requested_at': datetime.now(),
@@ -267,16 +277,22 @@ class Grabber(object):
 
         By default, this will attempt to use the built in
         ``get_image_from_url(url)`` method, however a different callable
-        can be chosen by setting the grabber's ``downloader`` attribute.
+        can be chosen by setting the grabber's ``download_callable`` attribute.
 
-        The callable used as the ``downloader`` must have the following
+        The returned "result" dict contains the downloaded image (if download
+        was successful), information about any errors, the requested URL, etc.,
+        which should be enough for result handlers to do their thing.
+
+        The callable used as the downloader must have the following
         signtature::
 
-            def some_downloader(url):
+            def some_downloader(url, grabber):
+
+        Args:
+            dict: The "request" dictionary.
 
         Returns:
-            PIL.Image.Image: The downloaded image, or None if a squashed error
-                was encountered.
+            dict: A "result" dictionary.
         """
         url = request['url']
         download_callable = self.get_download_callable()
@@ -297,9 +313,23 @@ class Grabber(object):
         return result
 
     def get_download_callable(self):
+        """
+        Returns:
+            callable: The callable to use for the download request.
+        """
         return self.download_callable
 
     def ignore_download_exception(self, e):
+        """Check the Grabber's config to see whether the supplied exception
+        should be ignored or not.
+
+        Args:
+            e (Exception): The exception to check
+
+        Returns:
+            bool: ``True`` to ignore, ``False`` otherwise.
+        """
+
         def ignore_http_code(code):
             attribute = 'ignore_{}'.format(code)
             return getattr(self, attribute)
@@ -320,17 +350,29 @@ class Grabber(object):
         return False
 
     def handle_received_image(self, result):
-        """Process the supplied image as per the grabber's configuration.
+        """Process the supplied "result" dict.
+
+        Each configured result handler will be called in turn. Result handlers
+        may return a modified result dict, which will then be passed to the
+        next result handler. Allows for complex behaviour to be chained
+        together.
 
         Args:
-            result (dict): The grabbed cam image, with meta information, to be
-                processed.
+            result (dict): The "result" dict
+
+        Returns:
+            dict: The final result dict.
         """
         for handler in self.get_result_handlers():
             result = handler(result, self) or result
         return result
 
     def get_result_handlers(self):
+        """Get an iterable of all the configured result handlers.
+
+        Returns:
+            tuple: A tuple of result handlers.
+        """
         if self.result_handlers:
             return self.result_handlers
 
@@ -340,17 +382,22 @@ class Grabber(object):
         return default + extra
 
     def should_save_image(self):
-        """Check whether the Grabber is configured to save images.
-
-        Image saving can be toggled off by setting the ``save``,
-        ``save_filename`` or ``save_dir`` attributes to None.
-
-        Returns:
-            bool: Whether the Grabber will attempt to save images or not.
-        """
+        # TODO: handle all this in do_save_image handler instead of here
         return bool(self.save and self.save_filename and self.save_dir)
 
     def get_save_path(self):
+        """Returns the base directory and filename of where to save images.
+
+        If the configured directory or filename have tokens (which is likely),
+        then the result will include the tokens and will need to be ran through
+        ``format_path()`` before being used.
+
+        Is a method just for convenience, and result handlers may use their own
+        method of getting save locations.
+
+        Returns:
+            str: The configured ``save_dir`` and ``save_filename`` attributes.
+        """
         save_path = '{save_dir}/{save_filename}'.format(
             save_dir=self.save_dir, save_filename=self.save_filename
         )
@@ -368,26 +415,29 @@ class Grabber(object):
         dirs = dirname(save_path)
         makedirs(dirs, exist_ok=True)
 
-    def format_path(self, path, request):
+    def format_path(self, path, data):
         """Token filter the supplied path.
 
         Available tokens:
 
             * All the standard strftime directives found here:
                 https://docs.python.org/3/library/datetime.html#strftime-strptime-behavior
+            * url: The requested URL, with illegal path characters cleaned out.
 
-        The token filtering is performed by str.format(), so the path should
-        be supplied looking something like::
+        The token filtering is performed by str.format(), so the tokens in the
+        path should be wrapped in curly braces, for example::
 
-            'some_dir/{Y}/{m}/{d}/{H}{M}{S}.jpg'
+            'some_dir/{Y}/{m}/{d}/{url}/{H}{M}{S}.jpg'
 
         Args:
-            path: A string ready to be token filtered.
+            path (str): A string ready to be token filtered.
+            data (dict): A "request" or "result" dict, the values of which
+                will be used for the formatting.
 
         Returns:
             str: The token filtered path.
         """
-        now = request['requested_at']
+        now = data['requested_at']
 
         out = path.format(
             # All the standard strftime directives:
@@ -416,11 +466,21 @@ class Grabber(object):
             X=now.strftime('%X'),
 
             # More from request
-            url=self.slugify(request['url']),
+            url=self.slugify(data['url']),
         )
         return out
 
     def slugify(self, value):
+        """Slugify the provided value to make it safe to use in paths.
+
+        Replaces problematic characters with hyphens.
+
+        Args:
+            value (str): The string to slugify.
+
+        Returns:
+            str: The supplied string made safe for paths.
+        """
         # Just a slightly modified version of Django's slugify:
         # https://docs.djangoproject.com/en/1.11/_modules/django/utils/text/#slugify
         value = re.sub(r'[^\w\s-]', '-', value).strip().lower()
