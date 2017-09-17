@@ -81,9 +81,13 @@ class TestGrabber(object):
         assert grabber.save is True
 
         assert grabber.ignore_timeout is True
-        assert grabber.ignore_403 is False
-        assert grabber.ignore_404 is False
-        assert grabber.ignore_500 is True
+
+        ignore_status_codes = (
+            307, 400, 408, 409, 429, 444, 451, 499, 500, 502, 503, 504, 507,
+            599
+        )
+        for code in ignore_status_codes:
+            assert getattr(grabber, 'ignore_{}'.format(code)) is True
 
         assert grabber._test_max_ticks is None
 
@@ -271,8 +275,8 @@ class TestGrabber(object):
             (URLError(reason=timeout(), filename=None), 'ignore_timeout'),
         )
 
-        http_errors = []
         http_status_codes = (403, 404, 500)
+        http_errors = []
         for code in http_status_codes:
             http_errors.append(
                 (

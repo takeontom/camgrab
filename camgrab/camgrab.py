@@ -208,9 +208,14 @@ class Grabber(object):
         self.timeout = 30
 
         self.ignore_timeout = True
-        self.ignore_403 = False
-        self.ignore_404 = False
-        self.ignore_500 = True
+
+        ignore_status_codes = (
+            307, 400, 408, 409, 429, 444, 451, 499, 500, 502, 503, 504, 507,
+            599
+        )
+
+        for code in ignore_status_codes:
+            setattr(self, 'ignore_{}'.format(code), True)
 
         # Will bail after running this many ticks
         self._test_max_ticks = None
