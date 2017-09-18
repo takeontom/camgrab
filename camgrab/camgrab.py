@@ -334,11 +334,6 @@ class Grabber(object):
         Returns:
             bool: ``True`` to ignore, ``False`` otherwise.
         """
-
-        def ignore_http_code(code):
-            attribute = 'ignore_{}'.format(code)
-            return getattr(self, attribute)
-
         # Basic socket timeout
         if isinstance(e, timeout):
             return self.ignore_timeout
@@ -350,9 +345,13 @@ class Grabber(object):
 
         # urllib HTTP errors
         if isinstance(e, HTTPError):
-            return ignore_http_code(e.code)
+            return self.ignore_http_code(e.code)
 
         return False
+
+    def ignore_http_code(self, code):
+        attribute = 'ignore_{}'.format(code)
+        return getattr(self, attribute, False)
 
     def handle_received_image(self, result):
         """Process the supplied "result" dict.

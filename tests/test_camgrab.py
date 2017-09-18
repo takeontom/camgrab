@@ -266,7 +266,7 @@ class TestGrabber(object):
         e = Exception()
         assert grabber.ignore_download_exception(e) is False
 
-    def test_ignore_download_exception(self):
+    def test_ignore_download_exception(self, mocker):
         url = 'http://example.com'
 
         socket_errors = ((timeout(), 'ignore_timeout'), )
@@ -299,6 +299,19 @@ class TestGrabber(object):
             # Don't ignore error
             setattr(grabber, flag, False)
             assert grabber.ignore_download_exception(e) is False
+
+    def test_ignore_http_code(self):
+        grabber = Grabber('http://example.com')
+
+        status_code = 999  # Definitely won't exist
+
+        assert grabber.ignore_http_code(status_code) is False
+
+        grabber.ignore_999 = True
+        assert grabber.ignore_http_code(status_code) is True
+
+        grabber.ignore_999 = False
+        assert grabber.ignore_http_code(status_code) is False
 
     def test_handle_received_image(self, mocker):
         grabber = Grabber('http://example.com')
