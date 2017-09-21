@@ -1,13 +1,14 @@
 import os
+import socket
 from datetime import datetime
-from socket import timeout
 from urllib.error import HTTPError, URLError
 
 import httpretty
 import pytest
 from PIL import Image
 
-from camgrab.camgrab import Grabber, do_save_image, get_image_from_url
+from camgrab import Grabber
+from camgrab.camgrab import do_save_image, get_image_from_url
 
 
 class TestGrabber_IntegrationTests(object):
@@ -81,6 +82,8 @@ class TestGrabber(object):
         assert grabber.save is True
 
         assert grabber.ignore_timeout is True
+        assert grabber.ignore_network is True
+        assert grabber.failed_exception is None
 
         ignore_status_codes = (
             307, 400, 408, 409, 429, 444, 451, 499, 500, 502, 503, 504, 507,
@@ -145,6 +148,19 @@ class TestGrabber(object):
         grabber.create_request.assert_called_once_with()
         grabber.download_image.assert_called_once_with(dummy_request)
         grabber.handle_received_image.assert_called_once_with(dummy_result)
+
+    def test_tick__exception(self, mocker):
+        grabber = Grabber('http://example.com')
+
+        an_exception = IOError('some exception')
+        mocker.patch.object(
+            grabber, 'create_request', side_effect=an_exception
+        )
+
+        with pytest.raises(IOError):
+            grabber.tick()
+
+        assert grabber.failed_exception is an_exception
 
     def test_create_request(self, mocker):
         mocked_datetime = mocker.patch(
@@ -269,10 +285,18 @@ class TestGrabber(object):
     def test_ignore_download_exception(self, mocker):
         url = 'http://example.com'
 
-        socket_errors = ((timeout(), 'ignore_timeout'), )
+        socket_errors = ((socket.timeout(), 'ignore_timeout'), )
 
         urllib_errors = (
-            (URLError(reason=timeout(), filename=None), 'ignore_timeout'),
+            (
+                URLError(reason=socket.timeout(), filename=None),
+                'ignore_timeout'
+            ),
+            (
+                URLError(reason=socket.gaierror(), filename=None),
+                'ignore_network'
+            ),
+            (URLError(reason=OSError(), filename=None), 'ignore_network'),
         )
 
         http_status_codes = (403, 404, 500)

@@ -1,10 +1,10 @@
 import re
+import socket
 import urllib.request
 from datetime import datetime
 from io import BytesIO
 from os import makedirs
 from os.path import dirname
-from socket import timeout
 from time import sleep
 from urllib.error import HTTPError, URLError
 
@@ -174,6 +174,11 @@ class Grabber(object):
 
             Whether timeout errors should be ignored.
 
+        ignore_network: Default: ``True``
+
+            Should general network errors (DNS, network unreachable, etc.) be
+            ignored?
+
         ignore_xxx: Default: False
 
             Whether errors from specific HTTP status codes should be ignored.
@@ -182,6 +187,11 @@ class Grabber(object):
 
             When not ignored, HTTP errors will need to be handled (or not) by
             consuming code.
+
+        failed_exception: Default: None
+
+            Set to the exception which causes the ``tick()`` method to crash.
+            Is useful for debugging in threaded setups.
     """
 
     def __init__(
@@ -208,6 +218,9 @@ class Grabber(object):
         self.timeout = 30
 
         self.ignore_timeout = True
+        self.ignore_network = True
+
+        self.failed_exception = None
 
         ignore_status_codes = (
             307, 400, 408, 409, 429, 444, 451, 499, 500, 502, 503, 504, 507,
@@ -256,10 +269,19 @@ class Grabber(object):
 
         It's safe to call ``tick()`` from consuming code, allowing easy
         replacement of the ``begin()`` method, if needed.
+
+        If any unhndled exceptions are raised during the tick, then the
+        `failed_exception` attribute is set with the exception. This allows
+        for retrospective inspection of why a Grabber failed in threaded
+        setups.
         """
-        request = self.create_request()
-        result = self.download_image(request)
-        self.handle_received_image(result)
+        try:
+            request = self.create_request()
+            result = self.download_image(request)
+            self.handle_received_image(result)
+        except Exception as e:
+            self.failed_exception = e
+            raise e
 
     def create_request(self):
         """Create the request dict to be used by download handlers.
@@ -335,13 +357,19 @@ class Grabber(object):
             bool: ``True`` to ignore, ``False`` otherwise.
         """
         # Basic socket timeout
-        if isinstance(e, timeout):
+        if isinstance(e, socket.timeout):
             return self.ignore_timeout
 
         # socket timeout caught by urllib
         if isinstance(e, URLError):
-            if isinstance(e.reason, timeout):
+            if isinstance(e.reason, socket.timeout):
                 return self.ignore_timeout
+            if isinstance(e.reason, socket.gaierror):
+                return self.ignore_network
+            if isinstance(e.reason, OSError):
+                return self.ignore_network
+            else:
+                print(e.reason)
 
         # urllib HTTP errors
         if isinstance(e, HTTPError):

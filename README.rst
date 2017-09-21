@@ -149,6 +149,10 @@ Because of all this, camgrab's default settings make it pretty tolerant of
 common errors which occur when grabbing an image. But this can be configured
 easily enough.
 
+When an unhandled exception is raised during a ``tick()`` which causes a crash,
+the exception which caused the crash can be found in the ``failed_exception``
+attribute.
+
 HTTP errors
 ...........
 
@@ -217,6 +221,7 @@ caused a crash, then just set the `ignore_timeout` attribute:
     except URLError as e:
         if isinstance(e.reason, timeout):
             print("It's me, not you")
+
 
 License
 -------

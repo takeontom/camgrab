@@ -1,4 +1,0 @@
-pillow==4.2.1
-
--r requirements-testing.txt
--r requirements-local.txt
